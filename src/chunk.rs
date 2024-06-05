@@ -2,85 +2,54 @@ use glam::UVec3;
 
 use crate::block::BlockId;
 
-/// Size of a chunk along on the X axis, in blocks
-pub const CHUNK_SIZE_X: u32 = 32;
-/// Size of a chunk along on the Y axis, in blocks
-pub const CHUNK_SIZE_Y: u32 = 32;
-/// Size of a chunk along on the Z axis, in blocks
-pub const CHUNK_SIZE_Z: u32 = 32;
-/// Total number of blocks in a chunk
-pub const CHUNK_SIZE_FLAT: usize = (CHUNK_SIZE_X * CHUNK_SIZE_Y * CHUNK_SIZE_Z) as usize;
+pub const CHUNK_SIZE: u32 = 32;
+pub const CHUNK_SIZE_SQUARED: usize = (CHUNK_SIZE * CHUNK_SIZE) as usize;
+pub const CHUNK_SIZE_CUBED: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) as usize;
 
-pub type Chunk = GenericChunk<SimpleChunkStorage>;
-
-pub struct GenericChunk<Storage>
-where
-    Storage: ChunkStorage,
-{
-    storage: Storage,
+#[derive(Clone, Debug)]
+pub struct Chunk {
+    storage: ChunkStorage,
 }
 
-impl<Storage> GenericChunk<Storage>
-where
-    Storage: ChunkStorage,
-{
+impl Chunk {
     pub fn new() -> Self {
         Self {
-            storage: Storage::from_block_array([BlockId(0); CHUNK_SIZE_FLAT]),
+            storage: ChunkStorage::from_block_array([BlockId(0); CHUNK_SIZE_CUBED]),
         }
     }
 }
 
-pub trait ChunkStorage: Clone {
+#[derive(Clone, Debug)]
+pub struct ChunkStorage {
+    blocks: [BlockId; CHUNK_SIZE_CUBED],
+}
+
+impl ChunkStorage {
     /// Initialize the chunk storage with an array of block IDs
-    fn from_block_array(blocks: [BlockId; CHUNK_SIZE_FLAT]) -> Self;
-
-    /// Returns the chunk data as an array of block IDs
-    fn as_block_array(&self) -> [BlockId; CHUNK_SIZE_FLAT];
-
-    /// Returns an iterator over the block IDs in the chunk
-    /// Blocks are ordered by x, then y, then z
-    fn iter(&self) -> impl Iterator<Item = BlockId>;
-
-    /// Returns the block ID at the given position
-    /// Panics if the position is out of bounds
-    fn get(&self, pos: UVec3) -> BlockId;
-
-    /// Returns the block ID at the given position
-    /// Panics if the position is out of bounds
-    fn set(&mut self, pos: UVec3, id: BlockId);
-}
-
-#[allow(unused)]
-#[derive(Clone)]
-pub struct SimpleChunkStorage {
-    blocks: [BlockId; CHUNK_SIZE_FLAT],
-}
-
-impl ChunkStorage for SimpleChunkStorage {
-    fn from_block_array(blocks: [BlockId; CHUNK_SIZE_FLAT]) -> Self {
+    pub fn from_block_array(blocks: [BlockId; CHUNK_SIZE_CUBED]) -> Self {
         Self { blocks }
     }
 
-    fn as_block_array(&self) -> [BlockId; CHUNK_SIZE_FLAT] {
+    /// Returns the chunk data as an array of block IDs
+    pub fn as_block_array(&self) -> [BlockId; CHUNK_SIZE_CUBED] {
         self.blocks.clone()
     }
 
-    fn iter(&self) -> impl Iterator<Item = BlockId> {
-        self.blocks.iter().copied()
-    }
-
-    fn get(&self, pos: UVec3) -> BlockId {
+    /// Returns the block ID at the given position
+    /// Panics if the position is out of bounds
+    pub fn get(&self, pos: UVec3) -> BlockId {
         self.blocks[uvec3_to_chunk_index(pos)]
     }
 
-    fn set(&mut self, pos: UVec3, new_id: BlockId) {
+    /// Returns the block ID at the given position
+    /// Panics if the position is out of bounds
+    pub fn set(&mut self, pos: UVec3, new_id: BlockId) {
         self.blocks[uvec3_to_chunk_index(pos)] = new_id;
     }
 }
 
 pub fn uvec3_to_chunk_index(pos: UVec3) -> usize {
-    ((CHUNK_SIZE_X * CHUNK_SIZE_Y) * pos.z + CHUNK_SIZE_X * pos.y + pos.x) as usize
+    ((CHUNK_SIZE * CHUNK_SIZE) * pos.z + CHUNK_SIZE * pos.y + pos.x) as usize
 }
 
 /*

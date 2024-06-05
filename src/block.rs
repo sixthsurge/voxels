@@ -3,13 +3,31 @@ pub struct BlockId(pub u32);
 
 #[derive(Clone, Debug)]
 pub struct Block {
-    model: BlockModel,
+    pub model: BlockModel,
 }
 
 #[derive(Clone, Debug)]
 pub enum BlockModel {
     Empty,
     FullBlock,
+}
+
+impl BlockModel {
+    pub fn has_face(&self, face_index: usize) -> bool {
+        match self {
+            &BlockModel::Empty => false,
+            &BlockModel::FullBlock => true,
+        }
+    }
+}
+
+pub enum BlockFace {
+    PosX,
+    PosY,
+    PosZ,
+    NegX,
+    NegY,
+    NegZ,
 }
 
 pub const BLOCK_AIR: BlockId = BlockId(0);

@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use glam::{DVec2, Vec2};
 use winit::{
     event::{DeviceEvent, ElementState, KeyEvent, MouseButton, WindowEvent},
     keyboard::{KeyCode, PhysicalKey},
@@ -11,7 +12,7 @@ pub struct Input {
     keys_held_last_frame: HashSet<KeyCode>,
     mouse_buttons_held: HashSet<MouseButton>,
     mouse_buttons_held_last_frame: HashSet<MouseButton>,
-    mouse_delta: (f64, f64),
+    mouse_delta: DVec2,
 }
 
 impl Input {
@@ -21,7 +22,7 @@ impl Input {
             keys_held_last_frame: HashSet::new(),
             mouse_buttons_held: HashSet::new(),
             mouse_buttons_held_last_frame: HashSet::new(),
-            mouse_delta: (0.0, 0.0),
+            mouse_delta: DVec2::ZERO,
         }
     }
 
@@ -29,7 +30,7 @@ impl Input {
     pub fn reset(&mut self) {
         self.keys_held_last_frame = self.keys_held.clone();
         self.mouse_buttons_held_last_frame = self.mouse_buttons_held.clone();
-        self.mouse_delta = (0.0, 0.0);
+        self.mouse_delta = DVec2::ZERO;
     }
 
     /// Returns true if the event was "consumed"
@@ -73,8 +74,8 @@ impl Input {
     pub fn handle_device_event(&mut self, event: &DeviceEvent) -> bool {
         match event {
             DeviceEvent::MouseMotion { delta } => {
-                self.mouse_delta.0 += delta.0;
-                self.mouse_delta.1 += delta.1;
+                self.mouse_delta.x += delta.0;
+                self.mouse_delta.y += delta.1;
                 true
             }
             _ => false,
@@ -119,11 +120,11 @@ impl Input {
                 .contains(&button)
     }
 
-    pub fn mouse_delta(&self) -> (f64, f64) {
+    pub fn mouse_delta(&self) -> DVec2 {
         self.mouse_delta
     }
 
-    pub fn mouse_delta_f32(&self) -> (f32, f32) {
-        (self.mouse_delta.0 as f32, self.mouse_delta.1 as f32)
+    pub fn mouse_delta_f32(&self) -> Vec2 {
+        self.mouse_delta.as_vec2()
     }
 }

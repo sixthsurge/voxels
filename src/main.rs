@@ -1,11 +1,15 @@
+extern crate derive_more;
+
 use std::sync::Arc;
 
-use block::BlockId;
-use chunk::CHUNK_SIZE_FLAT;
+use block::{BlockId, BLOCK_WHITE};
+use bracket_noise::prelude::{FastNoise, NoiseType};
+use chunk::{CHUNK_SIZE, CHUNK_SIZE_CUBED};
 use fly_camera::FlyCamera;
+use glam::{UVec3, Vec2};
 use input::Input;
 use render::{
-    camera::Camera, camera::Projection, chunk_mesh_gen::ChunkMesh, context::RenderContext,
+    camera::Camera, camera::Projection, chunk_mesh_gen::ChunkMeshData, context::RenderContext,
     engine::RenderEngine, mesh::Mesh,
 };
 use time::{TargetFrameRate, Time};
@@ -64,7 +68,7 @@ impl State {
         let world = World::new();
         let mut render_engine = RenderEngine::new(&render_context);
 
-        let chunk_mesh = ChunkMesh::build([BlockId(0); CHUNK_SIZE_FLAT]);
+        let chunk_mesh = ChunkMeshData::greedy(&gen_temp_block_array());
         render_engine.add_chunk_mesh(Mesh::new(
             &render_context.device,
             &chunk_mesh.vertices,
@@ -92,11 +96,6 @@ impl State {
         self.update();
         self.render();
         self.time.update_frame_count();
-        self.window.set_title(&format!(
-            "{} ({} fps)",
-            WINDOW_TITLE,
-            self.time.get_frames_last_second()
-        ));
         self.time.wait_for_next_frame();
     }
 
@@ -106,19 +105,27 @@ impl State {
     }
 
     fn update(&mut self) {
+        // display framerate in window title
+        self.window.set_title(&format!(
+            "{} ({} fps)",
+            WINDOW_TITLE,
+            self.time.get_frames_last_second()
+        ));
+
+        // update flycam
         if self.fly_camera_active {
             self.fly_camera
                 .update(&self.input, &self.time);
         }
 
-        self.input.reset();
-    }
-
-    fn render(&mut self) {
         self.camera.transform = self.fly_camera.get_transform();
         self.render_engine
             .set_camera(&self.camera);
 
+        self.input.reset();
+    }
+
+    fn render(&mut self) {
         let Some(surface_texture) = self
             .render_context
             .get_surface_texture()
@@ -191,6 +198,29 @@ impl ApplicationHandler<()> for WinitApplicationHandler {
             None => (),
         }
     }
+}
+
+fn gen_temp_block_array() -> [BlockId; CHUNK_SIZE_CUBED] {
+    let mut blocks = [BlockId(0); CHUNK_SIZE_CUBED];
+
+    let mut noise = FastNoise::seeded(1);
+    noise.set_noise_type(NoiseType::Simplex);
+    noise.set_frequency(0.025);
+
+    let mut index = 0;
+    for z in 0..CHUNK_SIZE {
+        for y in 0..CHUNK_SIZE {
+            for x in 0..CHUNK_SIZE {
+                let noise_value = noise.get_noise3d(x as f32, y as f32, z as f32);
+                if noise_value > 0.0 {
+                    blocks[index] = BLOCK_WHITE;
+                }
+                index += 1;
+            }
+        }
+    }
+
+    blocks
 }
 
 fn main() -> Result<(), EventLoopError> {

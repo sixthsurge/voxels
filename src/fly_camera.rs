@@ -3,6 +3,9 @@ use winit::keyboard::KeyCode;
 
 use crate::{input::Input, time::Time, util::transform::Transform};
 
+pub const DEFAULT_SPEED: f32 = 5.0;
+pub const DEFAULT_SENSITIVITY: f32 = 0.01;
+
 #[derive(Clone, Debug)]
 pub struct FlyCamera {
     pub position: Vec3,
@@ -46,9 +49,9 @@ impl FlyCamera {
         self.position += DIR_UP * input_up * speed;
 
         // rotation
-        let (rotate_yaw, rotate_pitch) = input.mouse_delta_f32();
-        self.yaw -= self.sensitivity * rotate_yaw;
-        self.pitch -= self.sensitivity * rotate_pitch;
+        let rotate_amount = input.mouse_delta_f32();
+        self.yaw -= self.sensitivity * rotate_amount.x;
+        self.pitch -= self.sensitivity * rotate_amount.y;
 
         self.pitch = self
             .pitch
@@ -62,8 +65,8 @@ impl Default for FlyCamera {
             position: Vec3::ZERO,
             yaw: 0.0,
             pitch: 0.0,
-            speed: 5.0,
-            sensitivity: 0.05,
+            speed: DEFAULT_SPEED,
+            sensitivity: DEFAULT_SENSITIVITY,
             key_forward: KeyCode::KeyW,
             key_backward: KeyCode::KeyS,
             key_right: KeyCode::KeyD,
