@@ -1,4 +1,4 @@
-use glam::{UVec2, UVec3, Vec2, Vec3, Vec3Swizzles};
+use glam::{UVec2, UVec3, Vec2, Vec2Swizzles, Vec3, Vec3Swizzles};
 
 use crate::{
     block::{BlockId, BlockModel, BLOCKS},
@@ -246,43 +246,28 @@ impl ChunkMeshData {
     /// add a single axis-aligned face to the mesh
     /// `first_block_pos` is the position of the cell with the smallest coordinates that this face
     /// covers
-    fn add_face<Dir>(&mut self, first_block_pos: Vec3, size: Vec2)
+    fn add_face<Dir>(&mut self, origin: Vec3, size: Vec2)
     where
         Dir: FaceDir,
     {
+        const INDICES: [ChunkIndex; 6] = [0, 1, 2, 2, 3, 0];
+
+        let uvs = [[0.0, size.y], [size.x, size.y], [size.x, 0.0], [0.0, 0.0]];
+
         let first_index = self.vertices.len() as ChunkIndex;
 
-        let perpendicular_offset = if Dir::NEGATIVE { 0.0 } else { 1.0 };
-
-        let vertices = [
-            ChunkVertex {
-                position: (first_block_pos
-                    + Dir::rotate_vec3(Vec3::new(0.0, 0.0, perpendicular_offset)))
-                .to_array(),
-            },
-            ChunkVertex {
-                position: (first_block_pos
-                    + Dir::rotate_vec3(Vec3::new(size.x, 0.0, perpendicular_offset)))
-                .to_array(),
-            },
-            ChunkVertex {
-                position: (first_block_pos
-                    + Dir::rotate_vec3(Vec3::new(0.0, size.y, perpendicular_offset)))
-                .to_array(),
-            },
-            ChunkVertex {
-                position: (first_block_pos
-                    + Dir::rotate_vec3(Vec3::new(size.x, size.y, perpendicular_offset)))
-                .to_array(),
-            },
-        ];
-
-        self.vertices
-            .extend_from_slice(&vertices);
-        self.indices.extend(
-            Dir::INDICES
+        self.vertices.extend(
+            Dir::vertices(size)
                 .iter()
-                .copied()
+                .enumerate()
+                .map(|(i, vertex_offset)| ChunkVertex {
+                    position: (origin + *vertex_offset).to_array(),
+                    uv: uvs[i],
+                }),
+        );
+        self.indices.extend(
+            INDICES
+                .iter()
                 .map(|index| index + first_index),
         );
     }
@@ -300,11 +285,13 @@ impl ChunkMeshData {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ChunkVertex {
     pub position: [f32; 3],
+    pub uv: [f32; 2],
 }
 
 impl Vertex for ChunkVertex {
     fn vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRIBUTES: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x3];
+        const ATTRIBUTES: [wgpu::VertexAttribute; 2] =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
 
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
@@ -327,12 +314,11 @@ pub trait FaceDir {
     /// whether this face direction points away from its axis
     const NEGATIVE: bool;
 
-    /// indices of the vertices of the two triangles making up this face of the unit cube
-    const INDICES: [ChunkIndex; 6];
-
-    /// indices of the vertices of the two triangles making up this face of the unit cube
-    /// (flipped orientation)
-    const INDICES_FLIPPED: [ChunkIndex; 6];
+    /// returns the 4 vertices for a face of this direction
+    /// the size of the face on the two parallel directions is
+    /// when looking at the face head on, the first vertex is at
+    /// the bottom left and the following vertices proceed anticlockwise
+    fn vertices(size: Vec2) -> [Vec3; 4];
 
     /// given a vector whose x and y components are specified parallel to the face and whose z
     /// component is specified perpendicular to the face, converts it to absolute coordinates by
@@ -358,15 +344,22 @@ impl FaceDir for PosX {
     const FACE_INDEX: usize = 0;
     const OPPOSITE_FACE_INDEX: usize = 3;
     const NEGATIVE: bool = false;
-    const INDICES: [ChunkIndex; 6] = [1, 3, 2, 2, 0, 1];
-    const INDICES_FLIPPED: [ChunkIndex; 6] = [0, 1, 3, 3, 2, 0];
+
+    fn vertices(size: Vec2) -> [Vec3; 4] {
+        [
+            Vec3::new(1.0, 0.0, size.x),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(1.0, size.y, 0.0),
+            Vec3::new(1.0, size.y, size.x),
+        ]
+    }
 
     fn rotate_vec3(v: Vec3) -> Vec3 {
-        v.zxy()
+        v.zyx()
     }
 
     fn rotate_uvec3(v: UVec3) -> UVec3 {
-        v.zxy()
+        v.zyx()
     }
 }
 
@@ -377,15 +370,22 @@ impl FaceDir for PosY {
     const FACE_INDEX: usize = 1;
     const OPPOSITE_FACE_INDEX: usize = 4;
     const NEGATIVE: bool = false;
-    const INDICES: [ChunkIndex; 6] = [1, 0, 2, 2, 3, 1];
-    const INDICES_FLIPPED: [ChunkIndex; 6] = [0, 2, 3, 3, 1, 0];
+
+    fn vertices(size: Vec2) -> [Vec3; 4] {
+        [
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(0.0, 1.0, size.x),
+            Vec3::new(size.y, 1.0, size.x),
+            Vec3::new(size.y, 1.0, 0.0),
+        ]
+    }
 
     fn rotate_vec3(v: Vec3) -> Vec3 {
-        v.xzy()
+        v.yzx()
     }
 
     fn rotate_uvec3(v: UVec3) -> UVec3 {
-        v.xzy()
+        v.yzx()
     }
 }
 
@@ -396,8 +396,15 @@ impl FaceDir for PosZ {
     const FACE_INDEX: usize = 2;
     const OPPOSITE_FACE_INDEX: usize = 5;
     const NEGATIVE: bool = false;
-    const INDICES: [ChunkIndex; 6] = [0, 1, 3, 3, 2, 0];
-    const INDICES_FLIPPED: [ChunkIndex; 6] = [1, 3, 2, 2, 0, 1];
+
+    fn vertices(size: Vec2) -> [Vec3; 4] {
+        [
+            Vec3::new(0.0, 0.0, 1.0),
+            Vec3::new(size.x, 0.0, 1.0),
+            Vec3::new(size.x, size.y, 1.0),
+            Vec3::new(0.0, size.y, 1.0),
+        ]
+    }
 
     fn rotate_vec3(v: Vec3) -> Vec3 {
         v
@@ -415,15 +422,22 @@ impl FaceDir for NegX {
     const FACE_INDEX: usize = 3;
     const OPPOSITE_FACE_INDEX: usize = 0;
     const NEGATIVE: bool = true;
-    const INDICES: [ChunkIndex; 6] = [0, 2, 3, 3, 1, 0];
-    const INDICES_FLIPPED: [ChunkIndex; 6] = [1, 0, 2, 2, 3, 1];
+
+    fn vertices(size: Vec2) -> [Vec3; 4] {
+        [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, size.x),
+            Vec3::new(0.0, size.y, size.x),
+            Vec3::new(0.0, size.y, 0.0),
+        ]
+    }
 
     fn rotate_vec3(v: Vec3) -> Vec3 {
-        v.zxy()
+        v.zyx()
     }
 
     fn rotate_uvec3(v: UVec3) -> UVec3 {
-        v.zxy()
+        v.zyx()
     }
 }
 
@@ -434,15 +448,22 @@ impl FaceDir for NegY {
     const FACE_INDEX: usize = 4;
     const OPPOSITE_FACE_INDEX: usize = 1;
     const NEGATIVE: bool = true;
-    const INDICES: [ChunkIndex; 6] = [3, 2, 1, 1, 3, 2];
-    const INDICES_FLIPPED: [ChunkIndex; 6] = [0, 1, 3, 3, 2, 0];
+
+    fn vertices(size: Vec2) -> [Vec3; 4] {
+        [
+            Vec3::new(size.y, 0.0, 0.0),
+            Vec3::new(size.y, 0.0, size.x),
+            Vec3::new(0.0, 0.0, size.x),
+            Vec3::new(0.0, 0.0, 0.0),
+        ]
+    }
 
     fn rotate_vec3(v: Vec3) -> Vec3 {
-        v.xzy()
+        v.yzx()
     }
 
     fn rotate_uvec3(v: UVec3) -> UVec3 {
-        v.xzy()
+        v.yzx()
     }
 }
 
@@ -453,8 +474,15 @@ impl FaceDir for NegZ {
     const FACE_INDEX: usize = 5;
     const OPPOSITE_FACE_INDEX: usize = 2;
     const NEGATIVE: bool = true;
-    const INDICES: [ChunkIndex; 6] = [1, 0, 2, 2, 3, 1];
-    const INDICES_FLIPPED: [ChunkIndex; 6] = [0, 2, 3, 3, 1, 0];
+
+    fn vertices(size: Vec2) -> [Vec3; 4] {
+        [
+            Vec3::new(size.x, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, size.y, 0.0),
+            Vec3::new(size.x, size.y, 0.0),
+        ]
+    }
 
     fn rotate_vec3(v: Vec3) -> Vec3 {
         v

@@ -3,3 +3,4 @@ pub mod chunk_mesh_gen;
 pub mod context;
 pub mod engine;
 pub mod mesh;
+pub mod texture;

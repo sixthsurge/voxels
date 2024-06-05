@@ -6,7 +6,7 @@ use block::{BlockId, BLOCK_WHITE};
 use bracket_noise::prelude::{FastNoise, NoiseType};
 use chunk::{CHUNK_SIZE, CHUNK_SIZE_CUBED};
 use fly_camera::FlyCamera;
-use glam::{UVec3, Vec2};
+use glam::UVec2;
 use input::Input;
 use render::{
     camera::Camera, camera::Projection, chunk_mesh_gen::ChunkMeshData, context::RenderContext,
@@ -53,6 +53,7 @@ struct State {
 
 impl State {
     fn new(window: Arc<Window>) -> Self {
+        let window_size = window.inner_size();
         let render_context = RenderContext::new(window.clone());
         let input = Input::new();
         let time = Time::new(TargetFrameRate::UnlimitedOrVsync);
@@ -66,7 +67,10 @@ impl State {
             },
         );
         let world = World::new();
-        let mut render_engine = RenderEngine::new(&render_context);
+        let mut render_engine = RenderEngine::new(
+            &render_context,
+            UVec2::new(window_size.width, window_size.height),
+        );
 
         let chunk_mesh = ChunkMeshData::greedy(&gen_temp_block_array());
         render_engine.add_chunk_mesh(Mesh::new(
@@ -101,6 +105,10 @@ impl State {
 
     fn resized(&mut self, new_size: PhysicalSize<u32>) {
         self.render_context.resized(new_size);
+        self.render_engine.resized(
+            &self.render_context,
+            UVec2::new(new_size.width, new_size.height),
+        );
         self.camera.resized(new_size);
     }
 

@@ -1,20 +1,87 @@
-use wgpu::BufferAddress;
+use glam::UVec2;
+use wgpu::{core::device, BufferAddress, DepthStencilState};
 
 use crate::render::{camera::Camera, context::RenderContext, mesh::Mesh, mesh::Vertex};
 
-use super::chunk_mesh_gen::ChunkVertex;
+use super::{chunk_mesh_gen::ChunkVertex, texture::Texture};
 
 pub struct RenderEngine {
     chunk_meshes: Vec<Mesh>,
+    depth_texture: Texture,
     terrain_pipeline: wgpu::RenderPipeline,
+    texture_array: Texture,
+    texture_array_bind_group: wgpu::BindGroup,
     global_uniforms: GlobalUniforms,
     global_uniforms_buffer: wgpu::Buffer,
     global_uniforms_bind_group: wgpu::BindGroup,
 }
 
 impl RenderEngine {
-    pub fn new(render_context: &RenderContext) -> Self {
+    pub fn new(render_context: &RenderContext, window_size: UVec2) -> Self {
         let chunk_meshes = Vec::new();
+
+        let depth_texture = Texture::new_depth_texture(
+            &render_context.device,
+            window_size,
+            wgpu::TextureFormat::Depth32Float,
+            Some("Depth Texture"),
+        );
+
+        let texture_array = Texture::load_array(
+            &render_context.device,
+            &render_context.queue,
+            &["res/assets/test.png"],
+            UVec2::splat(16),
+            1,
+            wgpu::AddressMode::Repeat,
+            wgpu::FilterMode::Nearest,
+            wgpu::FilterMode::Nearest,
+            wgpu::FilterMode::Linear,
+            Some("Terrain Texture Array"),
+        )
+        .unwrap();
+
+        let texture_array_bind_group_layout = render_context
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+
+        let texture_array_bind_group =
+            render_context
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &texture_array_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(texture_array.view()),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(texture_array.sampler()),
+                        },
+                    ],
+                    label: Some("Texture Array Bind Group"),
+                });
 
         let global_uniforms = GlobalUniforms::default();
 
@@ -70,7 +137,10 @@ impl RenderEngine {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&global_uniforms_bind_group_layout],
+                bind_group_layouts: &[
+                    &texture_array_bind_group_layout,
+                    &global_uniforms_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -101,10 +171,16 @@ impl RenderEngine {
                     front_face: wgpu::FrontFace::Ccw,
                     cull_mode: Some(wgpu::Face::Back),
                     unclipped_depth: false,
-                    polygon_mode: wgpu::PolygonMode::Line,
+                    polygon_mode: wgpu::PolygonMode::Fill,
                     conservative: false,
                 },
-                depth_stencil: None,
+                depth_stencil: Some(DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
                 multisample: wgpu::MultisampleState {
                     count: 1,
                     mask: !0,
@@ -115,7 +191,10 @@ impl RenderEngine {
 
         Self {
             chunk_meshes,
+            depth_texture,
             terrain_pipeline,
+            texture_array,
+            texture_array_bind_group,
             global_uniforms,
             global_uniforms_buffer,
             global_uniforms_bind_group,
@@ -154,13 +233,21 @@ impl RenderEngine {
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.depth_texture.view(),
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
             occlusion_query_set: None,
             timestamp_writes: None,
         });
 
         render_pass.set_pipeline(&self.terrain_pipeline);
-        render_pass.set_bind_group(0, &self.global_uniforms_bind_group, &[]);
+        render_pass.set_bind_group(0, &self.texture_array_bind_group, &[]);
+        render_pass.set_bind_group(1, &self.global_uniforms_bind_group, &[]);
 
         for mesh in &self.chunk_meshes {
             mesh.draw(&mut render_pass);
@@ -173,6 +260,15 @@ impl RenderEngine {
         render_context
             .queue
             .submit(std::iter::once(command_buffer));
+    }
+
+    pub fn resized(&mut self, render_context: &RenderContext, window_size: UVec2) {
+        let depth_texture = Texture::new_depth_texture(
+            &render_context.device,
+            window_size,
+            wgpu::TextureFormat::Depth32Float,
+            Some("Depth Texture"),
+        );
     }
 
     pub fn add_chunk_mesh(&mut self, mesh: Mesh) {

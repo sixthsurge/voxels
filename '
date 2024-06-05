@@ -1,0 +1,88 @@
+use std::{fs::File, io::BufReader, path::Path};
+
+use super::context::RenderContext;
+
+/// helper struct grouping a `wgpu::Texture` with its corresponding `wgpu::TextureView` and
+/// `wgpu::Sampler` and easing the creation of different kinds of texture
+pub struct Texture {
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
+    sampler: wgpu::Sampler,
+}
+
+impl Texture {
+    pub fn new(
+        render_context: &RenderContext,
+        size: wgpu::Extent3d,
+        dimension: wgpu::TextureDimension,
+        format: wgpu::TextureFormat,
+        usage: wgpu::TextureUsages,
+        mip_level_count: u32,
+        address_mode: wgpu::AddressMode,
+        mag_filter: wgpu::FilterMode,
+        min_filter: wgpu::FilterMode,
+        mipmap_filter: wgpu::FilterMode,
+        label: wgpu::Label,
+    ) -> Self {
+        let texture = render_context
+            .device
+            .create_texture(&wgpu::TextureDescriptor {
+                size,
+                mip_level_count,
+                sample_count: 1,
+                dimension,
+                format,
+                usage,
+                label,
+                view_formats: &[format],
+            });
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let sampler = render_context
+            .device
+            .create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: address_mode,
+                address_mode_v: address_mode,
+                address_mode_w: address_mode,
+                mag_filter,
+                min_filter,
+                mipmap_filter,
+                ..Default::default()
+            });
+
+        Self {
+            texture,
+            view,
+            sampler,
+        }
+    }
+
+    pub fn load_from_file(path: impl AsRef<Path>) -> Result<Self, LoadTextureError> {
+        let file = File::open(path)
+        let mut file_reader = BufReader::new(file);
+    }
+
+    /// returns the underlying `wgpu::Texture`
+    pub fn texture(&self) -> &wgpu::Texture {
+        &self.texture
+    }
+
+    /// returns the `wgpu::TextureView` for this texture
+    pub fn view(&self) -> &wgpu::TextureView {
+        &self.view
+    }
+
+    /// returns the `wgpu::Sampler` for this texture
+    pub fn sampler(&self) -> &wgpu::Sampler {
+        &self.sampler
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LoadTextureError {
+    #[error("io error: {0:?}")]
+    IoError(std::io::Error),
+    #[error("image error: {0}")]
+    ImageError(image::ImageError),
+}
