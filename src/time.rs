@@ -7,7 +7,7 @@ pub enum TargetFrameRate {
 }
 
 #[derive(Debug, Clone)]
-pub struct TimeState {
+pub struct Time {
     /// Target frame rate
     target_frame_rate: TargetFrameRate,
     /// Instant of the first frame
@@ -24,7 +24,7 @@ pub struct TimeState {
     frames_last_second: u32,
 }
 
-impl TimeState {
+impl Time {
     pub fn new(target_frame_rate: TargetFrameRate) -> Self {
         Self {
             target_frame_rate,

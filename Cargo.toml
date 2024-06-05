@@ -3,16 +3,19 @@ name = "voxels"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# enable full optimizations for dependencies in dev mode
+[profile.dev.package."*"]
+opt-level = 3
 
 [dependencies]
-bytemuck = { version = "1.15.0", features = [ "derive" ] }
-env_logger = "0.11.3"
-glam = "0.27.0"
-log = "0.4.21"
-pollster = "0.3.0"
+bracket-noise = "0.8"
+bytemuck = { version = "1.15", features = [ "derive" ] }
+derive_more = "0.99"
+env_logger = "0.11"
+glam = "0.27"
+log = "0.4"
+pollster = "0.3"
 serde = { version = "1.0", features = [ "derive" ] }
-thiserror = "1.0.61"
-toml = "0.8.14"
-wgpu = "0.20.0"
-winit = "0.30.0"
+thiserror = "1.0"
+wgpu = "0.20"
+winit = "0.30"

@@ -1,7 +1,7 @@
 use glam::{EulerRot, Quat, Vec3};
 use winit::keyboard::KeyCode;
 
-use crate::{input::InputState, time::TimeState, transform::Transform};
+use crate::{input::Input, time::Time, util::transform::Transform};
 
 #[derive(Clone, Debug)]
 pub struct FlyCamera {
@@ -27,7 +27,7 @@ impl FlyCamera {
         }
     }
 
-    pub fn update(&mut self, input: &InputState, time: &TimeState) {
+    pub fn update(&mut self, input: &Input, time: &Time) {
         // movement
         let input_forward = axis_input(input, self.key_forward, self.key_backward);
         let input_right = axis_input(input, self.key_right, self.key_left);
@@ -35,7 +35,7 @@ impl FlyCamera {
 
         let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
 
-        let dir_forward = Vec3::new(sin_yaw, 0.0, cos_yaw);
+        let dir_forward = Vec3::new(-sin_yaw, 0.0, -cos_yaw);
         let dir_right = Vec3::new(cos_yaw, 0.0, -sin_yaw);
         const DIR_UP: Vec3 = Vec3::new(0.0, 1.0, 0.0);
 
@@ -47,8 +47,8 @@ impl FlyCamera {
 
         // rotation
         let (rotate_yaw, rotate_pitch) = input.mouse_delta_f32();
-        self.yaw += self.sensitivity * rotate_yaw;
-        self.pitch += self.sensitivity * rotate_pitch;
+        self.yaw -= self.sensitivity * rotate_yaw;
+        self.pitch -= self.sensitivity * rotate_pitch;
 
         self.pitch = self
             .pitch
@@ -74,6 +74,6 @@ impl Default for FlyCamera {
     }
 }
 
-fn axis_input(input: &InputState, key_pos: KeyCode, key_neg: KeyCode) -> f32 {
+fn axis_input(input: &Input, key_pos: KeyCode, key_neg: KeyCode) -> f32 {
     (input.is_key_down(key_pos) as i32 - input.is_key_down(key_neg) as i32) as f32
 }

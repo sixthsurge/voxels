@@ -1,7 +1,7 @@
-use glam::{Affine3A, Mat4};
+use glam::Mat4;
 use winit::dpi::PhysicalSize;
 
-use crate::transform::Transform;
+use crate::util::transform::Transform;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Projection {
@@ -31,13 +31,13 @@ impl Projection {
                 top,
                 near,
                 far,
-            } => Mat4::orthographic_lh(left, right, bottom, top, near, far),
+            } => Mat4::orthographic_rh(left, right, bottom, top, near, far),
             &Projection::Perspective {
                 aspect_ratio,
                 fov_y_radians,
                 z_near,
                 z_far,
-            } => Mat4::perspective_lh(fov_y_radians, aspect_ratio, z_near, z_far),
+            } => Mat4::perspective_rh(fov_y_radians, aspect_ratio, z_near, z_far),
         }
     }
 }
@@ -64,7 +64,7 @@ impl Camera {
         self.projection.as_matrix()
     }
 
-    pub fn on_resize(&mut self, new_size: PhysicalSize<u32>) {
+    pub fn resized(&mut self, new_size: PhysicalSize<u32>) {
         if let Projection::Perspective { aspect_ratio, .. } = &mut self.projection {
             *aspect_ratio = new_size.width as f32 / new_size.height as f32;
         }
