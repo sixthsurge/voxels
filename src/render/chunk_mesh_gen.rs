@@ -80,7 +80,11 @@ impl ChunkMeshData {
 
                     if block_model.has_face(Dir::FACE_INDEX) {
                         if visible {
-                            self.add_face::<Dir>(pos_in_chunk.as_vec3(), Vec2::ONE);
+                            self.add_face::<Dir>(
+                                pos_in_chunk.as_vec3(),
+                                Vec2::ONE,
+                                block_model.texture_index(),
+                            );
                         }
                     }
 
@@ -228,7 +232,11 @@ impl ChunkMeshData {
                     }
 
                     // create the merged face
-                    self.add_face::<Dir>(original_pos.as_vec3(), face_size.as_vec2());
+                    self.add_face::<Dir>(
+                        original_pos.as_vec3(),
+                        face_size.as_vec2(),
+                        original_model.texture_index(),
+                    );
                 }
             }
         }
@@ -237,7 +245,7 @@ impl ChunkMeshData {
     /// add a single axis-aligned face to the mesh
     /// `first_block_pos` is the position of the cell with the smallest coordinates that this face
     /// covers
-    fn add_face<Dir>(&mut self, origin: Vec3, size: Vec2)
+    fn add_face<Dir>(&mut self, origin: Vec3, size: Vec2, texture_index: usize)
     where
         Dir: FaceDir,
     {
@@ -254,6 +262,7 @@ impl ChunkMeshData {
                 .map(|(i, vertex_offset)| ChunkVertex {
                     position: (origin + *vertex_offset).to_array(),
                     uv: uvs[i],
+                    texture_index: texture_index as u32,
                 }),
         );
         self.indices.extend(
@@ -269,6 +278,7 @@ impl ChunkMeshData {
         Dir: FaceDir,
     {
         block_model_a.has_face(Dir::FACE_INDEX) == block_model_b.has_face(Dir::FACE_INDEX)
+            && block_model_a.texture_index() == block_model_b.texture_index()
     }
 
     /// evaluate whether the original face can be merged with the face with coordinates
@@ -309,12 +319,13 @@ impl ChunkMeshData {
 pub struct ChunkVertex {
     pub position: [f32; 3],
     pub uv: [f32; 2],
+    pub texture_index: u32,
 }
 
 impl Vertex for ChunkVertex {
     fn vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRIBUTES: [wgpu::VertexAttribute; 2] =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
+        const ATTRIBUTES: [wgpu::VertexAttribute; 3] =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Uint32];
 
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,

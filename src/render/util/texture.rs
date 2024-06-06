@@ -10,6 +10,7 @@ pub struct Texture {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
     sampler: wgpu::Sampler,
+    size: UVec3,
 }
 
 impl Texture {
@@ -57,6 +58,7 @@ impl Texture {
             texture,
             view,
             sampler,
+            size,
         }
     }
 
@@ -100,6 +102,7 @@ impl Texture {
             texture,
             view,
             sampler,
+            size: UVec3::new(size.x, size.y, 1),
         }
     }
 
@@ -171,6 +174,7 @@ impl Texture {
         paths: &[impl AsRef<Path>],
         individual_image_size: UVec2,
         mip_level_count: u32,
+        usage: wgpu::TextureUsages,
         address_mode: wgpu::AddressMode,
         mag_filter: wgpu::FilterMode,
         min_filter: wgpu::FilterMode,
@@ -188,7 +192,7 @@ impl Texture {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            usage,
             label,
             view_formats: &[],
         });
@@ -259,6 +263,11 @@ impl Texture {
             texture,
             view,
             sampler,
+            size: UVec3::new(
+                individual_image_size.x,
+                individual_image_size.y,
+                paths.len() as u32,
+            ),
         })
     }
 
@@ -275,6 +284,12 @@ impl Texture {
     /// returns the `wgpu::Sampler` for this texture
     pub fn sampler(&self) -> &wgpu::Sampler {
         &self.sampler
+    }
+
+    /// returns the size of the texture
+    /// for texture arrays, the z component is the number of array layers
+    pub fn size(&self) -> UVec3 {
+        self.size
     }
 }
 

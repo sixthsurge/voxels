@@ -7,9 +7,9 @@ use crate::render::{
     util::{bind_group_builder::BindGroupBuilder, mesh::Mesh, mesh::Vertex, texture::Texture},
 };
 
-use super::util::pipeline_builder::RenderPipelineBuilder;
+use super::{util::mip_generator::MipGenerator, util::pipeline_builder::RenderPipelineBuilder};
 
-pub struct RenderEngine {
+pub struct Renderer {
     chunk_meshes: Vec<Mesh>,
     depth_texture: Texture,
     terrain_pipeline: wgpu::RenderPipeline,
@@ -20,8 +20,9 @@ pub struct RenderEngine {
     global_uniforms_bind_group: wgpu::BindGroup,
 }
 
-impl RenderEngine {
+impl Renderer {
     const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+    const MIP_LEVEL_COUNT: u32 = 4;
 
     pub fn new(render_context: &RenderContext, window_size: UVec2) -> Self {
         let chunk_meshes = Vec::new();
@@ -36,9 +37,12 @@ impl RenderEngine {
         let texture_array = Texture::load_array(
             &render_context.device,
             &render_context.queue,
-            &["res/assets/test.png"],
+            &["assets/test.png", "assets/sad.png"],
             UVec2::splat(16),
-            1,
+            Self::MIP_LEVEL_COUNT,
+            wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
             wgpu::AddressMode::Repeat,
             wgpu::FilterMode::Nearest,
             wgpu::FilterMode::Nearest,
@@ -47,16 +51,26 @@ impl RenderEngine {
         )
         .unwrap();
 
+        // generate mipmaps
+        let mut mipmap_encoder = render_context
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        let mipmap_generator =
+            MipGenerator::new(&render_context.device, wgpu::TextureFormat::Rgba8UnormSrgb);
+        mipmap_generator.gen_mips(
+            &mut mipmap_encoder,
+            &render_context.device,
+            texture_array.texture(),
+            texture_array.size().z,
+            Self::MIP_LEVEL_COUNT,
+        );
+        render_context
+            .queue
+            .submit(std::iter::once(mipmap_encoder.finish()));
+
         let terrain_shader = render_context
             .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("terrain.wgsl"),
-                source: wgpu::ShaderSource::Wgsl(
-                    std::fs::read_to_string("res/shaders/terrain.wgsl")
-                        .unwrap()
-                        .into(),
-                ),
-            });
+            .create_shader_module(wgpu::include_wgsl!("shaders/terrain.wgsl"));
 
         let global_uniforms = GlobalUniforms::default();
 

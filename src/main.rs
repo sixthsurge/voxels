@@ -2,15 +2,15 @@ extern crate derive_more;
 
 use std::sync::Arc;
 
-use block::{BlockId, BLOCK_WHITE};
+use block::{BlockId, BLOCK_HAPPY, BLOCK_SAD};
 use bracket_noise::prelude::{FastNoise, NoiseType};
 use chunk::{CHUNK_SIZE, CHUNK_SIZE_CUBED};
 use fly_camera::FlyCamera;
-use glam::UVec2;
+use glam::{IVec3, UVec2, UVec3};
 use input::Input;
 use render::{
     camera::Camera, camera::Projection, chunk_mesh_gen::ChunkMeshData, context::RenderContext,
-    engine::RenderEngine, util::mesh::Mesh,
+    renderer::Renderer, util::mesh::Mesh,
 };
 use time::{TargetFrameRate, Time};
 use util::transform::Transform;
@@ -45,7 +45,7 @@ struct State {
     input: Input,
     world: World,
     camera: Camera,
-    render_engine: RenderEngine,
+    renderer: Renderer,
     fly_camera: FlyCamera,
     fly_camera_active: bool,
     close_requested: bool,
@@ -67,13 +67,13 @@ impl State {
             },
         );
         let world = World::new();
-        let mut render_engine = RenderEngine::new(
+        let mut renderer = Renderer::new(
             &render_context,
             UVec2::new(window_size.width, window_size.height),
         );
 
-        let chunk_mesh = ChunkMeshData::greedy(&gen_temp_block_array());
-        render_engine.add_chunk_mesh(Mesh::new(
+        let chunk_mesh = ChunkMeshData::greedy(&gen_temp_block_array(IVec3::ZERO));
+        renderer.add_chunk_mesh(Mesh::new(
             &render_context.device,
             &chunk_mesh.vertices,
             &chunk_mesh.indices,
@@ -88,7 +88,7 @@ impl State {
             input,
             camera,
             world,
-            render_engine,
+            renderer,
             fly_camera,
             fly_camera_active: true,
             close_requested: false,
@@ -105,7 +105,7 @@ impl State {
 
     fn resized(&mut self, new_size: PhysicalSize<u32>) {
         self.render_context.resized(new_size);
-        self.render_engine.resized(
+        self.renderer.resized(
             &self.render_context,
             UVec2::new(new_size.width, new_size.height),
         );
@@ -127,8 +127,7 @@ impl State {
         }
 
         self.camera.transform = self.fly_camera.get_transform();
-        self.render_engine
-            .set_camera(&self.camera);
+        self.renderer.set_camera(&self.camera);
 
         self.input.reset();
     }
@@ -146,7 +145,7 @@ impl State {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.render_engine
+        self.renderer
             .render(&self.render_context, &surface_texture_view);
 
         surface_texture.present();
@@ -208,20 +207,30 @@ impl ApplicationHandler<()> for WinitApplicationHandler {
     }
 }
 
-fn gen_temp_block_array() -> [BlockId; CHUNK_SIZE_CUBED] {
+fn gen_temp_block_array(chunk_pos: IVec3) -> [BlockId; CHUNK_SIZE_CUBED] {
     let mut blocks = [BlockId(0); CHUNK_SIZE_CUBED];
+
+    let chunk_offset = chunk_pos.as_vec3() * (CHUNK_SIZE as f32);
 
     let mut noise = FastNoise::seeded(1);
     noise.set_noise_type(NoiseType::Simplex);
     noise.set_frequency(0.025);
 
+    let mut noise2 = FastNoise::seeded(2);
+    noise2.set_frequency(0.05);
+
     let mut index = 0;
     for z in 0..CHUNK_SIZE {
         for y in 0..CHUNK_SIZE {
             for x in 0..CHUNK_SIZE {
-                let noise_value = noise.get_noise3d(x as f32, y as f32, z as f32);
+                let pos = UVec3::new(x, y, z).as_vec3() + chunk_offset;
+                let noise_value = noise.get_noise3d(pos.x, pos.y, pos.z);
                 if noise_value > 0.0 {
-                    blocks[index] = BLOCK_WHITE;
+                    if noise2.get_noise3d(pos.x, pos.y, pos.z) > 0.0 {
+                        blocks[index] = BLOCK_HAPPY;
+                    } else {
+                        blocks[index] = BLOCK_SAD;
+                    }
                 }
                 index += 1;
             }
