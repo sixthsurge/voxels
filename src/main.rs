@@ -10,7 +10,7 @@ use glam::UVec2;
 use input::Input;
 use render::{
     camera::Camera, camera::Projection, chunk_mesh_gen::ChunkMeshData, context::RenderContext,
-    engine::RenderEngine, mesh::Mesh,
+    engine::RenderEngine, util::mesh::Mesh,
 };
 use time::{TargetFrameRate, Time};
 use util::transform::Transform;

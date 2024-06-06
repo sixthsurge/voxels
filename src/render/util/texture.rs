@@ -4,8 +4,6 @@ use glam::{UVec2, UVec3};
 use image::{GenericImageView, ImageFormat};
 use wgpu::{Device, TextureUsages, TextureViewDimension};
 
-use super::context::RenderContext;
-
 /// helper struct grouping a `wgpu::Texture` with its corresponding `wgpu::TextureView` and
 /// `wgpu::Sampler` and easing the creation of different kinds of texture
 pub struct Texture {

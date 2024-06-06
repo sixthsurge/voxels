@@ -3,7 +3,7 @@ use glam::{UVec2, UVec3, Vec2, Vec2Swizzles, Vec3, Vec3Swizzles};
 use crate::{
     block::{BlockId, BlockModel, BLOCKS},
     chunk::{uvec3_to_chunk_index, CHUNK_SIZE, CHUNK_SIZE_CUBED, CHUNK_SIZE_SQUARED},
-    render::mesh::Vertex,
+    render::util::mesh::Vertex,
 };
 
 pub struct ChunkMeshData {
@@ -98,6 +98,11 @@ impl ChunkMeshData {
         // references:
         // - https://eddieabbondanz.io/post/voxel/greedy-mesh/
 
+        // note about coordinates:
+        //   U and V refer to the cardinal directions perpendicular to the face direction
+        //   U is the direction of the first texture coordinate
+        //   V is the direction of the second texture coordinate
+
         // this will track whether each face in the next layer is visible
         // a face is visible if the block in the previous layer had no face in
         // the opposite direction
@@ -107,7 +112,7 @@ impl ChunkMeshData {
         for layer_index in 0..CHUNK_SIZE {
             // position of this layer, moving backwards through the chunk with respect to the face
             // direction
-            let pos_perpendicular = if Dir::NEGATIVE {
+            let layer_pos = if Dir::NEGATIVE {
                 layer_index
             } else {
                 (CHUNK_SIZE - 1) - layer_index
@@ -118,113 +123,99 @@ impl ChunkMeshData {
             let mut already_merged = [false; CHUNK_SIZE_SQUARED];
 
             // iterate over each block in the layer
-            for pos_parallel_y in 0..CHUNK_SIZE {
-                for pos_parallel_x in 0..CHUNK_SIZE {
+            for original_v in 0..CHUNK_SIZE {
+                for original_u in 0..CHUNK_SIZE {
                     // index of this block in the current layer
-                    let index_in_layer = (pos_parallel_y * CHUNK_SIZE + pos_parallel_x) as usize;
+                    let original_index = (original_v * CHUNK_SIZE + original_u) as usize;
 
                     // skip if already merged
-                    if already_merged[index_in_layer] {
+                    if already_merged[original_index] {
                         continue;
                     }
 
                     // position of this block in the chunk
-                    let pos_in_chunk = Dir::rotate_uvec3(UVec3::new(
-                        pos_parallel_x,
-                        pos_parallel_y,
-                        pos_perpendicular,
-                    ));
+                    let original_pos =
+                        Dir::rotate_uvec3(UVec3::new(original_u, original_v, layer_pos));
 
-                    let block_id = blocks[uvec3_to_chunk_index(pos_in_chunk) as usize];
-                    let block_model = &BLOCKS[block_id.0 as usize].model;
-                    let block_visible = visible[index_in_layer];
+                    let original_id = blocks[uvec3_to_chunk_index(original_pos) as usize];
+                    let original_model = &BLOCKS[original_id.0 as usize].model;
+                    let original_visible = visible[original_index];
 
                     // update `visible` for the next layer
-                    visible[index_in_layer] = !block_model.has_face(Dir::OPPOSITE_FACE_INDEX);
+                    visible[original_index] = !original_model.has_face(Dir::OPPOSITE_FACE_INDEX);
 
                     // skip if there is no face or the face is invisible
-                    if !block_model.has_face(Dir::FACE_INDEX) || !block_visible {
+                    if !original_model.has_face(Dir::FACE_INDEX) || !original_visible {
                         continue;
                     }
 
-                    // march to see how many faces can be merged in the x direction
+                    // march to see how many faces can be merged in the U direction
                     let mut face_size = UVec2::ONE;
-                    for merge_candidate_x in (pos_parallel_x + 1)..CHUNK_SIZE {
-                        let merge_candidate_pos =
-                            UVec3::new(merge_candidate_x, pos_parallel_y, pos_perpendicular);
-                        let merge_candidate_pos_in_chunk = Dir::rotate_uvec3(merge_candidate_pos);
-
-                        let merge_candidate_index_in_layer =
-                            (CHUNK_SIZE * pos_parallel_y + merge_candidate_x) as usize;
-
-                        let merge_candidate_id =
-                            blocks[uvec3_to_chunk_index(merge_candidate_pos_in_chunk) as usize];
-                        let merge_candidate_model = &BLOCKS[merge_candidate_id.0 as usize].model;
-                        let merge_candidate_visible = visible[merge_candidate_index_in_layer];
+                    for merge_candidate_u in (original_u + 1)..CHUNK_SIZE {
+                        let (can_merge, next_visible) = Self::consider_merge_candidate::<Dir>(
+                            blocks,
+                            &visible,
+                            layer_pos,
+                            original_model,
+                            merge_candidate_u,
+                            original_v,
+                        );
 
                         // stop counting when we can't merge any more faces
-                        if !Self::can_merge_faces::<Dir>(block_model, merge_candidate_model)
-                            || !merge_candidate_visible
-                        {
+                        if !can_merge {
                             break;
                         }
+
+                        let merged_index_in_layer =
+                            (CHUNK_SIZE * original_v + merge_candidate_u) as usize;
 
                         // grow the face
                         face_size.x += 1;
 
                         // mark that this face is already merged
-                        already_merged[merge_candidate_index_in_layer] = true;
+                        already_merged[merged_index_in_layer] = true;
 
                         // update `visible` for the same block in the next layer
                         // (this would not otherwise occur)
-                        visible[merge_candidate_index_in_layer] =
-                            !block_model.has_face(Dir::OPPOSITE_FACE_INDEX);
+                        visible[merged_index_in_layer] = next_visible;
                     }
 
-                    // march to see how many faces can be merged in the y direction
-                    'outer: for merge_candidate_y in (pos_parallel_y + 1)..CHUNK_SIZE {
+                    // march to see how many faces can be merged in the V direction
+                    'v: for merge_candidate_v in (original_v + 1)..CHUNK_SIZE {
                         // bit flags for whether the block adjacent to a block being considered for
                         // merging will be visible
                         // this avoids having to check the model again once it has been decided
                         // the layers can be merged
                         let mut visibility_flags: u32 = 0;
 
-                        // see if we can merge the next layer down
-                        for merge_candidate_x in pos_parallel_x..(pos_parallel_x + face_size.x) {
-                            let merge_candidate_pos =
-                                UVec3::new(merge_candidate_x, merge_candidate_y, pos_perpendicular);
-                            let merge_candidate_pos_in_chunk =
-                                Dir::rotate_uvec3(merge_candidate_pos);
-
-                            let merge_candidate_index_in_layer =
-                                (CHUNK_SIZE * merge_candidate_y + merge_candidate_x) as usize;
-
-                            let merge_candidate_id =
-                                blocks[uvec3_to_chunk_index(merge_candidate_pos_in_chunk) as usize];
-                            let merge_candidate_model =
-                                &BLOCKS[merge_candidate_id.0 as usize].model;
-                            let merge_candidate_visible = visible[merge_candidate_index_in_layer];
+                        // see if we can merge the next layer down by checking all blocks on this
+                        // layer in the U direction
+                        for merge_candidate_u in original_u..(original_u + face_size.x) {
+                            let (can_merge, next_visible) = Self::consider_merge_candidate::<Dir>(
+                                blocks,
+                                &visible,
+                                layer_pos,
+                                original_model,
+                                merge_candidate_u,
+                                merge_candidate_v,
+                            );
 
                             // stop counting when we can't merge any more faces
-                            if !Self::can_merge_faces::<Dir>(block_model, merge_candidate_model)
-                                || !merge_candidate_visible
-                            {
-                                break 'outer;
+                            if !can_merge {
+                                break 'v;
                             }
 
                             // update visibility flags
-                            let next_visible =
-                                !merge_candidate_model.has_face(Dir::OPPOSITE_FACE_INDEX);
-                            visibility_flags |= (next_visible as u32) << merge_candidate_x;
+                            visibility_flags |= (next_visible as u32) << merge_candidate_u;
                         }
 
                         // merge layers
                         face_size.y += 1;
 
                         // mark all faces in the layer as merged
-                        for merged_x in pos_parallel_x..(pos_parallel_x + face_size.x) {
+                        for merged_x in original_u..(original_u + face_size.x) {
                             let merged_index_in_layer =
-                                (merge_candidate_y * CHUNK_SIZE + merged_x) as usize;
+                                (merge_candidate_v * CHUNK_SIZE + merged_x) as usize;
 
                             already_merged[merged_index_in_layer] = true;
 
@@ -237,7 +228,7 @@ impl ChunkMeshData {
                     }
 
                     // create the merged face
-                    self.add_face::<Dir>(pos_in_chunk.as_vec3(), face_size.as_vec2());
+                    self.add_face::<Dir>(original_pos.as_vec3(), face_size.as_vec2());
                 }
             }
         }
@@ -278,6 +269,38 @@ impl ChunkMeshData {
         Dir: FaceDir,
     {
         block_model_a.has_face(Dir::FACE_INDEX) == block_model_b.has_face(Dir::FACE_INDEX)
+    }
+
+    /// evaluate whether the original face can be merged with the face with coordinates
+    /// `merge_candidate_u` and `merge_candidate_v` in the layer with position `layer_pos`
+    /// returns two booleans: whether the face can be merged, and whether the block with the
+    /// same U and V coordinates in the following layer is visible
+    fn consider_merge_candidate<Dir>(
+        blocks: &[BlockId; CHUNK_SIZE_CUBED],
+        visible: &[bool; CHUNK_SIZE_SQUARED],
+        layer_pos: u32,
+        original_model: &BlockModel,
+        merge_candidate_u: u32,
+        merge_candidate_v: u32,
+    ) -> (bool, bool)
+    where
+        Dir: FaceDir,
+    {
+        let merge_candidate_pos = UVec3::new(merge_candidate_u, merge_candidate_v, layer_pos);
+        let merge_candidate_pos = Dir::rotate_uvec3(merge_candidate_pos);
+
+        let merge_candidate_index_in_layer =
+            (CHUNK_SIZE * merge_candidate_v + merge_candidate_u) as usize;
+
+        let merge_candidate_id = blocks[uvec3_to_chunk_index(merge_candidate_pos) as usize];
+        let merge_candidate_model = &BLOCKS[merge_candidate_id.0 as usize].model;
+        let merge_candidate_visible = visible[merge_candidate_index_in_layer];
+
+        let can_merge = Self::can_merge_faces::<Dir>(original_model, merge_candidate_model)
+            && merge_candidate_visible;
+        let next_visible = !merge_candidate_model.has_face(Dir::OPPOSITE_FACE_INDEX);
+
+        (can_merge, next_visible)
     }
 }
 

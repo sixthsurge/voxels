@@ -1,9 +1,13 @@
 use glam::UVec2;
-use wgpu::{core::device, BufferAddress, DepthStencilState};
 
-use crate::render::{camera::Camera, context::RenderContext, mesh::Mesh, mesh::Vertex};
+use crate::render::{
+    camera::Camera,
+    chunk_mesh_gen::ChunkVertex,
+    context::RenderContext,
+    util::{bind_group_builder::BindGroupBuilder, mesh::Mesh, mesh::Vertex, texture::Texture},
+};
 
-use super::{chunk_mesh_gen::ChunkVertex, texture::Texture};
+use super::util::pipeline_builder::RenderPipelineBuilder;
 
 pub struct RenderEngine {
     chunk_meshes: Vec<Mesh>,
@@ -17,6 +21,8 @@ pub struct RenderEngine {
 }
 
 impl RenderEngine {
+    const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
     pub fn new(render_context: &RenderContext, window_size: UVec2) -> Self {
         let chunk_meshes = Vec::new();
 
@@ -41,47 +47,16 @@ impl RenderEngine {
         )
         .unwrap();
 
-        let texture_array_bind_group_layout = render_context
+        let terrain_shader = render_context
             .device
-            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2Array,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("terrain.wgsl"),
+                source: wgpu::ShaderSource::Wgsl(
+                    std::fs::read_to_string("res/shaders/terrain.wgsl")
+                        .unwrap()
+                        .into(),
+                ),
             });
-
-        let texture_array_bind_group =
-            render_context
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &texture_array_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(texture_array.view()),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(texture_array.sampler()),
-                        },
-                    ],
-                    label: Some("Texture Array Bind Group"),
-                });
 
         let global_uniforms = GlobalUniforms::default();
 
@@ -94,100 +69,40 @@ impl RenderEngine {
                 mapped_at_creation: false,
             });
 
-        let global_uniforms_bind_group_layout = render_context
-            .device
-            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::all(),
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
+        let (texture_array_bind_group, texture_array_bind_group_layout) = BindGroupBuilder::new()
+            .with_label("Texture Array Bind Group")
+            .with_texture_view(
+                texture_array.view(),
+                wgpu::TextureViewDimension::D2Array,
+                wgpu::TextureSampleType::Float { filterable: true },
+                wgpu::ShaderStages::FRAGMENT,
+            )
+            .with_sampler(
+                texture_array.sampler(),
+                wgpu::SamplerBindingType::Filtering,
+                wgpu::ShaderStages::FRAGMENT,
+            )
+            .build(&render_context.device);
 
-        let global_uniforms_bind_group =
-            render_context
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &global_uniforms_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: global_uniforms_buffer.as_entire_binding(),
-                    }],
-                    label: Some("Global Uniforms Bind Group"),
-                });
+        let (global_uniforms_bind_group, global_uniforms_bind_group_layout) =
+            BindGroupBuilder::new()
+                .with_uniform_buffer(&global_uniforms_buffer, wgpu::ShaderStages::all())
+                .build(&render_context.device);
 
-        let terrain_shader = render_context
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("terrain.wgsl"),
-                source: wgpu::ShaderSource::Wgsl(
-                    std::fs::read_to_string("res/shaders/terrain.wgsl")
-                        .unwrap()
-                        .into(),
-                ),
-            });
-
-        let terrain_pipeline_layout = render_context
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[
-                    &texture_array_bind_group_layout,
-                    &global_uniforms_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-
-        let terrain_pipeline = render_context
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Terrain Pipeline"),
-                layout: Some(&terrain_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &terrain_shader,
-                    entry_point: "vs_main",
-                    buffers: &[ChunkVertex::vertex_buffer_layout()],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &terrain_shader,
-                    entry_point: "fs_main",
-                    targets: &[Some(wgpu::ColorTargetState {
-                        write_mask: wgpu::ColorWrites::ALL,
-                        format: render_context.surface_config.format,
-                        blend: Some(wgpu::BlendState::REPLACE),
-                    })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
-                    unclipped_depth: false,
-                    polygon_mode: wgpu::PolygonMode::Fill,
-                    conservative: false,
-                },
-                depth_stencil: Some(DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState {
-                    count: 1,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                multiview: None,
-            });
+        let (terrain_pipeline, _) = RenderPipelineBuilder::new()
+            .with_label("Terrain Pipeline")
+            .with_bind_group_layout(&texture_array_bind_group_layout)
+            .with_bind_group_layout(&global_uniforms_bind_group_layout)
+            .with_vertex::<ChunkVertex>()
+            .with_vertex_shader(&terrain_shader, "vs_main")
+            .with_fragment_shader(&terrain_shader, "fs_main")
+            .with_color_target(
+                render_context.surface_config.format,
+                Some(wgpu::BlendState::REPLACE),
+                wgpu::ColorWrites::all(),
+            )
+            .with_depth(Self::DEPTH_FORMAT, wgpu::CompareFunction::Less)
+            .build(&render_context.device);
 
         Self {
             chunk_meshes,
@@ -208,7 +123,7 @@ impl RenderEngine {
     ) {
         render_context.queue.write_buffer(
             &self.global_uniforms_buffer,
-            0 as BufferAddress,
+            0 as wgpu::BufferAddress,
             bytemuck::cast_slice(&[self.global_uniforms]),
         );
 
