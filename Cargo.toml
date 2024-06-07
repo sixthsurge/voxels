@@ -14,6 +14,7 @@ codegen-units = 1
 lto = "fat"
 
 [dependencies]
+array-init = "2.1.0"
 bracket-noise = "0.8"
 bytemuck = { version = "1.15", features = [ "derive" ] }
 derive_more = "0.99"

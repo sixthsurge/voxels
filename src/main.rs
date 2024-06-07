@@ -119,6 +119,10 @@ impl State {
             load_radius: 5,
         }]);
 
+        self.renderer
+            .update(&self.render_context, &self.terrain);
+        self.terrain.clear_events();
+
         self.camera.transform = self.fly_camera.get_transform();
         self.renderer.set_camera(&self.camera);
 

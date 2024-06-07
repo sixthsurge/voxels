@@ -1,10 +1,14 @@
+use std::ops::Index;
+
 use glam::{UVec2, UVec3, Vec2, Vec3};
 
 use crate::{
     block::{model::BlockFace, BlockId, BLOCKS},
     render::util::mesh::{MeshData, Vertex},
-    terrain::chunk::{CHUNK_SIZE_CUBED, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
+    terrain::chunk::{CHUNK_SIZE, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
 };
+
+use super::vertex::ChunkVertex;
 
 /// data about a chunk needed to generate its mesh
 #[derive(Clone, Copy)]
@@ -15,62 +19,39 @@ pub struct ChunkMeshInput<'a> {
     pub translation: Vec3,
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ChunkVertex {
-    pub position: [f32; 3],
-    pub uv: [f32; 2],
-    pub texture_index: u32,
-}
-
-impl Vertex for ChunkVertex {
-    fn vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRIBUTES: [wgpu::VertexAttribute; 3] =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Uint32];
-
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &ATTRIBUTES,
-        }
-    }
-}
-
-pub type ChunkIndex = u32;
-pub type ChunkMeshData = MeshData<ChunkVertex, ChunkIndex>;
-
-/// creates a chunk mesh where faces inside the volume are skipped but no
-/// faces are merged
+/// creates the vertices for a chunk mesh where faces inside the volume are skipped but no
+/// faces are merged.
+/// the mesh should be rendered an index buffer that repeats the pattern 0, 1, 2, 2, 3, 0
 /// compared to `mesh_greedy`, meshing is much faster but the resulting meshes
-/// are more complex and therefore slower to render
-pub fn mesh_culled(input: ChunkMeshInput) -> ChunkMeshData {
-    let mut result = MeshData::empty();
+/// are more complex and therefore slower to render.
+pub fn mesh_culled(input: ChunkMeshInput) -> Vec<ChunkVertex> {
+    let mut vertices = Vec::new();
 
-    add_visible_faces::<face::PosX>(&mut result, input);
-    add_visible_faces::<face::PosY>(&mut result, input);
-    add_visible_faces::<face::PosZ>(&mut result, input);
-    add_visible_faces::<face::NegX>(&mut result, input);
-    add_visible_faces::<face::NegY>(&mut result, input);
-    add_visible_faces::<face::NegZ>(&mut result, input);
+    add_visible_faces::<face::PosX>(&mut vertices, input);
+    add_visible_faces::<face::PosY>(&mut vertices, input);
+    add_visible_faces::<face::PosZ>(&mut vertices, input);
+    add_visible_faces::<face::NegX>(&mut vertices, input);
+    add_visible_faces::<face::NegY>(&mut vertices, input);
+    add_visible_faces::<face::NegZ>(&mut vertices, input);
 
-    result
+    vertices
 }
 
 /// creates a chunk mesh where faces inside the volume are skipped and
 /// compatible faces are merged greedily
 /// compared to `culled`, meshing is much slower but the resulting meshes
 /// are simpler and therefore faster to render
-pub fn mesh_greedy(input: ChunkMeshInput) -> ChunkMeshData {
-    let mut result = MeshData::empty();
+pub fn mesh_greedy(input: ChunkMeshInput) -> Vec<ChunkVertex> {
+    let mut vertices = Vec::new();
 
-    add_greedy_merged_faces::<face::PosX>(&mut result, input);
-    add_greedy_merged_faces::<face::PosY>(&mut result, input);
-    add_greedy_merged_faces::<face::PosZ>(&mut result, input);
-    add_greedy_merged_faces::<face::NegX>(&mut result, input);
-    add_greedy_merged_faces::<face::NegY>(&mut result, input);
-    add_greedy_merged_faces::<face::NegZ>(&mut result, input);
+    add_greedy_merged_faces::<face::PosX>(&mut vertices, input);
+    add_greedy_merged_faces::<face::PosY>(&mut vertices, input);
+    add_greedy_merged_faces::<face::PosZ>(&mut vertices, input);
+    add_greedy_merged_faces::<face::NegX>(&mut vertices, input);
+    add_greedy_merged_faces::<face::NegY>(&mut vertices, input);
+    add_greedy_merged_faces::<face::NegZ>(&mut vertices, input);
 
-    result
+    vertices
 }
 
 /// decides whether the two faces can be merged
@@ -85,17 +66,17 @@ where
 
 /// add a single axis-aligned face to the mesh
 /// `origin` is the position of the cell with the smallest coordinates that this face covers
-fn add_face<FaceDir>(dst: &mut ChunkMeshData, origin: Vec3, size: Vec2, texture_index: usize)
-where
+fn add_face<FaceDir>(
+    vertices: &mut Vec<ChunkVertex>,
+    origin: Vec3,
+    size: Vec2,
+    texture_index: usize,
+) where
     FaceDir: face::FaceDir,
 {
-    const INDICES: [ChunkIndex; 6] = [0, 1, 2, 2, 3, 0];
-
     let uvs = [[0.0, size.y], [size.x, size.y], [size.x, 0.0], [0.0, 0.0]];
 
-    let first_index = dst.vertices.len() as ChunkIndex;
-
-    dst.vertices.extend(
+    vertices.extend(
         FaceDir::vertices(size)
             .iter()
             .enumerate()
@@ -105,15 +86,10 @@ where
                 texture_index: texture_index as u32,
             }),
     );
-    dst.indices.extend(
-        INDICES
-            .iter()
-            .map(|index| index + first_index),
-    );
 }
 
 /// add all visible faces for the given face direction
-fn add_visible_faces<FaceDir>(dst: &mut ChunkMeshData, input: ChunkMeshInput)
+fn add_visible_faces<FaceDir>(vertices: &mut Vec<ChunkVertex>, input: ChunkMeshInput)
 where
     FaceDir: face::FaceDir,
 {
@@ -140,7 +116,7 @@ where
                 if let Some(face) = face {
                     if visible {
                         add_face::<FaceDir>(
-                            dst,
+                            vertices,
                             pos_in_chunk.as_vec3() + input.translation,
                             Vec2::ONE,
                             face.texture_index,
@@ -157,7 +133,7 @@ where
 }
 
 /// greedily merge visible faces with the given direction and add them to the mesh
-fn add_greedy_merged_faces<FaceDir>(dst: &mut ChunkMeshData, input: ChunkMeshInput)
+fn add_greedy_merged_faces<FaceDir>(vertices: &mut Vec<ChunkVertex>, input: ChunkMeshInput)
 where
     FaceDir: face::FaceDir,
 {
@@ -333,7 +309,7 @@ where
 
                 // create the merged face
                 add_face::<FaceDir>(
-                    dst,
+                    vertices,
                     original_pos.as_vec3() + input.translation,
                     face_size.as_vec2(),
                     original_face.texture_index,
@@ -343,7 +319,27 @@ where
     }
 }
 
-pub fn uvec3_to_chunk_index(pos: UVec3) -> usize {
+/// generate indices for the meshes returned by `mesh_culled` and `mesh_greedy`
+pub fn generate_indices(vertex_count: usize) -> Vec<u32> {
+    const INDICES: [u32; 6] = [0, 1, 2, 2, 3, 0];
+
+    let index_count = vertex_count / 2 * 3;
+    let mut indices = Vec::with_capacity(index_count);
+
+    for i in 0..((index_count / 6) as u32) {
+        let first_index = i * 4;
+        indices.push(INDICES[0] + first_index);
+        indices.push(INDICES[1] + first_index);
+        indices.push(INDICES[2] + first_index);
+        indices.push(INDICES[3] + first_index);
+        indices.push(INDICES[4] + first_index);
+        indices.push(INDICES[5] + first_index);
+    }
+
+    indices
+}
+
+fn uvec3_to_chunk_index(pos: UVec3) -> usize {
     ((CHUNK_SIZE_U32 * CHUNK_SIZE_U32) * pos.z + CHUNK_SIZE_U32 * pos.y + pos.x) as usize
 }
 

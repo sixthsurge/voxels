@@ -28,19 +28,19 @@ impl Chunk {
     }
 
     /// returns the chunk data as an array of block IDs
-    fn as_block_array(&self) -> Arc<[BlockId]> {
+    pub fn as_block_array(&self) -> Arc<[BlockId]> {
         self.storage.as_block_array()
     }
 
     /// returns the block ID at the given position
     /// panics if the position is out of bounds
-    fn get_block(&self, pos: LocalBlockPos) -> BlockId {
+    pub fn get_block(&self, pos: LocalBlockPos) -> BlockId {
         self.storage.get_block(pos)
     }
 
     /// returns the block ID at the given position
     /// panics if the position is out of bounds
-    fn set_block(&mut self, pos: LocalBlockPos, new_id: BlockId) {
+    pub fn set_block(&mut self, pos: LocalBlockPos, new_id: BlockId) {
         self.storage.set_block(pos, new_id)
     }
 
