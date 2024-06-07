@@ -1,17 +1,14 @@
-extern crate derive_more;
-
 use std::sync::Arc;
 
-use block::{BlockId, BLOCK_HAPPY, BLOCK_SAD};
-use bracket_noise::prelude::{FastNoise, NoiseType};
-use chunk::{CHUNK_SIZE, CHUNK_SIZE_CUBED};
 use fly_camera::FlyCamera;
-use glam::{IVec3, UVec2, UVec3};
+use glam::UVec2;
 use input::Input;
 use render::{
-    camera::Camera, camera::Projection, chunk_mesh_gen::ChunkMeshData, context::RenderContext,
-    renderer::Renderer, util::mesh::Mesh,
+    camera::{Camera, Projection},
+    context::RenderContext,
+    renderer::Renderer,
 };
+use terrain::{Anchor, Terrain};
 use time::{TargetFrameRate, Time};
 use util::transform::Transform;
 use winit::{
@@ -22,16 +19,14 @@ use winit::{
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     window::{Window, WindowId},
 };
-use world::World;
 
 mod block;
-mod chunk;
 mod fly_camera;
 mod input;
 mod render;
+mod terrain;
 mod time;
 mod util;
-mod world;
 
 const WINDOW_TITLE: &'static str = "\"minecraft\"";
 
@@ -43,7 +38,7 @@ struct State {
     render_context: RenderContext,
     time: Time,
     input: Input,
-    world: World,
+    terrain: Terrain,
     camera: Camera,
     renderer: Renderer,
     fly_camera: FlyCamera,
@@ -66,18 +61,11 @@ impl State {
                 z_far: 1000.0,
             },
         );
-        let world = World::new();
-        let mut renderer = Renderer::new(
+        let terrain = Terrain::new();
+        let renderer = Renderer::new(
             &render_context,
             UVec2::new(window_size.width, window_size.height),
         );
-
-        let chunk_mesh = ChunkMeshData::greedy(&gen_temp_block_array(IVec3::ZERO));
-        renderer.add_chunk_mesh(Mesh::new(
-            &render_context.device,
-            &chunk_mesh.vertices,
-            &chunk_mesh.indices,
-        ));
 
         let fly_camera = FlyCamera::default();
 
@@ -87,7 +75,7 @@ impl State {
             time,
             input,
             camera,
-            world,
+            terrain,
             renderer,
             fly_camera,
             fly_camera_active: true,
@@ -125,6 +113,11 @@ impl State {
             self.fly_camera
                 .update(&self.input, &self.time);
         }
+
+        self.terrain.update(&[Anchor {
+            position: self.fly_camera.position,
+            load_radius: 5,
+        }]);
 
         self.camera.transform = self.fly_camera.get_transform();
         self.renderer.set_camera(&self.camera);
@@ -205,39 +198,6 @@ impl ApplicationHandler<()> for WinitApplicationHandler {
             None => (),
         }
     }
-}
-
-fn gen_temp_block_array(chunk_pos: IVec3) -> [BlockId; CHUNK_SIZE_CUBED] {
-    let mut blocks = [BlockId(0); CHUNK_SIZE_CUBED];
-
-    let chunk_offset = chunk_pos.as_vec3() * (CHUNK_SIZE as f32);
-
-    let mut noise = FastNoise::seeded(1);
-    noise.set_noise_type(NoiseType::Simplex);
-    noise.set_frequency(0.025);
-
-    let mut noise2 = FastNoise::seeded(2);
-    noise2.set_frequency(0.05);
-
-    let mut index = 0;
-    for z in 0..CHUNK_SIZE {
-        for y in 0..CHUNK_SIZE {
-            for x in 0..CHUNK_SIZE {
-                let pos = UVec3::new(x, y, z).as_vec3() + chunk_offset;
-                let noise_value = noise.get_noise3d(pos.x, pos.y, pos.z);
-                if noise_value > 0.0 {
-                    if noise2.get_noise3d(pos.x, pos.y, pos.z) > 0.0 {
-                        blocks[index] = BLOCK_HAPPY;
-                    } else {
-                        blocks[index] = BLOCK_SAD;
-                    }
-                }
-                index += 1;
-            }
-        }
-    }
-
-    blocks
 }
 
 fn main() -> Result<(), EventLoopError> {

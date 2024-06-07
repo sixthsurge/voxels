@@ -1,5 +1,6 @@
-use pollster::FutureExt;
 use std::sync::Arc;
+
+use pollster::FutureExt;
 use winit::{dpi::PhysicalSize, window::Window};
 
 #[derive(Debug)]

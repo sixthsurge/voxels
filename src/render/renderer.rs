@@ -2,15 +2,15 @@ use glam::UVec2;
 
 use crate::render::{
     camera::Camera,
-    chunk_mesh_gen::ChunkVertex,
+    chunk_meshing::ChunkVertex,
     context::RenderContext,
-    util::{bind_group_builder::BindGroupBuilder, mesh::Mesh, mesh::Vertex, texture::Texture},
+    util::{
+        bind_group_builder::BindGroupBuilder, mip_generator::MipGenerator,
+        pipeline_builder::RenderPipelineBuilder, texture::Texture,
+    },
 };
 
-use super::{util::mip_generator::MipGenerator, util::pipeline_builder::RenderPipelineBuilder};
-
 pub struct Renderer {
-    chunk_meshes: Vec<Mesh>,
     depth_texture: Texture,
     terrain_pipeline: wgpu::RenderPipeline,
     texture_array: Texture,
@@ -25,8 +25,6 @@ impl Renderer {
     const MIP_LEVEL_COUNT: u32 = 4;
 
     pub fn new(render_context: &RenderContext, window_size: UVec2) -> Self {
-        let chunk_meshes = Vec::new();
-
         let depth_texture = Texture::new_depth_texture(
             &render_context.device,
             window_size,
@@ -119,7 +117,6 @@ impl Renderer {
             .build(&render_context.device);
 
         Self {
-            chunk_meshes,
             depth_texture,
             terrain_pipeline,
             texture_array,
@@ -178,10 +175,6 @@ impl Renderer {
         render_pass.set_bind_group(0, &self.texture_array_bind_group, &[]);
         render_pass.set_bind_group(1, &self.global_uniforms_bind_group, &[]);
 
-        for mesh in &self.chunk_meshes {
-            mesh.draw(&mut render_pass);
-        }
-
         drop(render_pass);
 
         let command_buffer = encoder.finish();
@@ -200,22 +193,18 @@ impl Renderer {
         );
     }
 
-    pub fn add_chunk_mesh(&mut self, mesh: Mesh) {
-        self.chunk_meshes.push(mesh);
-    }
-
     pub fn set_camera(&mut self, camera: &Camera) {
-        self.global_uniforms.camera_view_matrix = camera.view_matrix().to_cols_array_2d();
+        self.global_uniforms.camera_view_matrix = camera.view_matrix().to_cols_array();
         self.global_uniforms
             .camera_projection_matrix = camera
             .projection_matrix()
-            .to_cols_array_2d();
+            .to_cols_array();
     }
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GlobalUniforms {
-    pub camera_view_matrix: [[f32; 4]; 4],
-    pub camera_projection_matrix: [[f32; 4]; 4],
+    pub camera_view_matrix: [f32; 16],
+    pub camera_projection_matrix: [f32; 16],
 }

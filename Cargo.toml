@@ -7,16 +7,23 @@ edition = "2021"
 [profile.dev.package."*"]
 opt-level = 3
 
+# increase optimizations in release mode
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+
 [dependencies]
 bracket-noise = "0.8"
 bytemuck = { version = "1.15", features = [ "derive" ] }
 derive_more = "0.99"
 env_logger = "0.11"
 glam = "0.27"
-image = "0.25.1"
+image = "0.25"
+itertools = "0.13.0"
 log = "0.4"
 pollster = "0.3"
-serde = { version = "1.0", features = [ "derive" ] }
+rayon = "1.10"
 thiserror = "1.0"
 wgpu = "0.20"
 winit = "0.30"

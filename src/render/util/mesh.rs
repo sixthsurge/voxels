@@ -1,33 +1,44 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-pub trait Vertex: Pod + Zeroable {
-    fn vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static>;
+/// stores vertices and indices to be uploaded to the GPU as a `Mesh`
+#[derive(Debug)]
+pub struct MeshData<V, I>
+where
+    V: Vertex,
+    I: Index,
+{
+    pub vertices: Vec<V>,
+    pub indices: Vec<I>,
 }
 
-pub trait Index: Pod + Zeroable {
-    fn index_format() -> wgpu::IndexFormat;
-}
+impl<V, I> MeshData<V, I>
+where
+    V: Vertex,
+    I: Index,
+{
+    /// empty mesh data with no vertices or indices
+    pub fn empty() -> Self {
+        Self {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        }
+    }
 
-impl Index for u16 {
-    fn index_format() -> wgpu::IndexFormat {
-        wgpu::IndexFormat::Uint16
+    /// creates a new mesh on the GPU with the vertices and indices
+    pub fn create_mesh(&self, device: &wgpu::Device) -> Mesh {
+        Mesh::new(device, &self.vertices, &self.indices)
     }
 }
 
-impl Index for u32 {
-    fn index_format() -> wgpu::IndexFormat {
-        wgpu::IndexFormat::Uint32
-    }
-}
-
+/// holds handles to a vertex and index buffer
+/// once created, `Mesh` does not hold the vertices/indices in memory - these are stored on the GPU
 #[derive(Debug)]
 pub struct Mesh {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
-    vertex_buffer_layout: wgpu::VertexBufferLayout<'static>,
-    index_count: u32,
     index_format: wgpu::IndexFormat,
+    index_count: u32,
 }
 
 impl Mesh {
@@ -46,29 +57,50 @@ impl Mesh {
             contents: bytemuck::cast_slice(indices),
             usage: wgpu::BufferUsages::INDEX,
         });
-        let vertex_buffer_layout = V::vertex_buffer_layout();
         let index_count = indices.len() as u32;
         let index_format = I::index_format();
 
         return Self {
             vertex_buffer,
             index_buffer,
-            vertex_buffer_layout,
             index_count,
             index_format,
         };
     }
 
-    pub fn draw<'mesh, 'render_pass>(&'mesh self, render_pass: &mut wgpu::RenderPass<'render_pass>)
-    where
-        'mesh: 'render_pass,
-    {
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), self.index_format);
-        render_pass.draw_indexed(0..self.index_count, 0, 0..1)
+    pub fn vertex_buffer(&self) -> &wgpu::Buffer {
+        &self.vertex_buffer
     }
 
-    pub fn vertex_buffer_layout(&self) -> wgpu::VertexBufferLayout<'static> {
-        self.vertex_buffer_layout.clone()
+    pub fn index_buffer(&self) -> &wgpu::Buffer {
+        &self.index_buffer
+    }
+
+    pub fn index_format(&self) -> wgpu::IndexFormat {
+        self.index_format
+    }
+
+    pub fn index_count(&self) -> u32 {
+        self.index_count
+    }
+}
+
+pub trait Vertex: Pod + Zeroable {
+    fn vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static>;
+}
+
+pub trait Index: Pod + Zeroable {
+    fn index_format() -> wgpu::IndexFormat;
+}
+
+impl Index for u16 {
+    fn index_format() -> wgpu::IndexFormat {
+        wgpu::IndexFormat::Uint16
+    }
+}
+
+impl Index for u32 {
+    fn index_format() -> wgpu::IndexFormat {
+        wgpu::IndexFormat::Uint32
     }
 }
