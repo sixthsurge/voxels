@@ -66,7 +66,11 @@ impl Renderer {
         let terrain_textures = ArrayTexture::from_files(
             &cx.device,
             &cx.queue,
-            &["assets/test.png", "assets/sad.png"],
+            &[
+                "assets/image/block/dirt.png",
+                "assets/image/block/grass_side.png",
+                "assets/image/block/grass_top.png",
+            ],
             image::ImageFormat::Png,
             &TextureConfig {
                 mip_level_count: Self::MIP_LEVEL_COUNT,
@@ -193,16 +197,13 @@ impl Renderer {
 
         for event in terrain.events() {
             match event {
-                TerrainEvent::ChunkLoaded(chunk_pos) => {
-                    let chunk = terrain.get_chunk(chunk_pos);
-                    if let Some(chunk) = chunk {
-                        self.chunk_render_groups
-                            .chunk_modified(chunk);
-                    }
-                }
-                TerrainEvent::ChunkUnloaded(chunk_pos) => {
+                &TerrainEvent::ChunkLoaded(chunk_pos) => {
                     self.chunk_render_groups
-                        .chunk_unloaded(&chunk_pos);
+                        .chunk_loaded(chunk_pos, terrain);
+                }
+                &TerrainEvent::ChunkUnloaded(chunk_pos) => {
+                    self.chunk_render_groups
+                        .chunk_unloaded(chunk_pos);
                 }
             }
         }

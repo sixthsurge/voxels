@@ -3,6 +3,8 @@ use std::sync::Arc;
 use super::position_types::{ChunkPos, LocalBlockPos};
 use crate::block::BlockId;
 
+pub mod side;
+
 pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_SIZE_LOG2: usize = 5;
 pub const CHUNK_SIZE_SQUARED: usize = (CHUNK_SIZE_U32 * CHUNK_SIZE_U32) as usize;

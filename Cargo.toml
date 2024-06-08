@@ -14,14 +14,14 @@ codegen-units = 1
 lto = "fat"
 
 [dependencies]
-array-init = "2.1.0"
+array-init = "2.1"
 bracket-noise = "0.8"
 bytemuck = { version = "1.15", features = [ "derive" ] }
 derive_more = "0.99"
 env_logger = "0.11"
 glam = "0.27"
 image = "0.25"
-itertools = "0.13.0"
+itertools = "0.13"
 log = "0.4"
 pollster = "0.3"
 rayon = "1.10"

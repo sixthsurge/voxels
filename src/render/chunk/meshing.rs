@@ -3,7 +3,7 @@ use glam::{UVec2, UVec3, Vec2, Vec3};
 use super::vertex::ChunkVertex;
 use crate::{
     block::{model::BlockFace, BlockId, BLOCKS},
-    terrain::chunk::{CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
+    terrain::chunk::{side::ChunkSide, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
 };
 
 /// Data about a chunk needed to generate its mesh
@@ -13,6 +13,8 @@ pub struct ChunkMeshInput<'a> {
     pub blocks: &'a [BlockId],
     /// Translation to encode in the mesh
     pub translation: Vec3,
+    /// Sides of the surrounding chunks
+    pub surrounding_sides: &'a [Option<ChunkSide>],
 }
 
 /// Creates the vertices for a chunk mesh where faces inside the volume are skipped but no
@@ -20,6 +22,7 @@ pub struct ChunkMeshInput<'a> {
 /// The mesh should be rendered an index buffer that repeats the pattern 0, 1, 2, 2, 3, 0.
 /// Compared to `mesh_greedy`, meshing is much faster but the resulting meshes
 /// are more complex and therefore slower to render
+#[allow(unused)]
 pub fn mesh_culled(input: ChunkMeshInput) -> Vec<ChunkVertex> {
     let mut vertices = Vec::new();
 
@@ -37,6 +40,7 @@ pub fn mesh_culled(input: ChunkMeshInput) -> Vec<ChunkVertex> {
 /// compatible faces are merged greedily.
 /// Compared to `culled`, meshing is much slower but the resulting meshes
 /// are simpler and therefore faster to render
+#[allow(unused)]
 pub fn mesh_greedy(input: ChunkMeshInput) -> Vec<ChunkVertex> {
     let mut vertices = Vec::new();
 
@@ -80,6 +84,7 @@ fn add_face<FaceDir>(
                 position: (origin + *vertex_offset).to_array(),
                 uv: uvs[i],
                 texture_index: texture_index as u32,
+                shading: FaceDir::SHADING,
             }),
     );
 }
@@ -91,7 +96,11 @@ where
 {
     for pos_parallel_x in 0..CHUNK_SIZE_U32 {
         for pos_parallel_y in 0..CHUNK_SIZE_U32 {
-            let mut visible = true;
+            let index_in_layer = (CHUNK_SIZE_U32 * pos_parallel_y + pos_parallel_x) as usize;
+            let mut visible = input.surrounding_sides[FaceDir::FACE_INDEX.as_usize()]
+                .as_ref()
+                .map(|side| side.faces[index_in_layer])
+                .unwrap_or(true);
 
             for pos_perpendicular in 0..CHUNK_SIZE_U32 {
                 let pos_in_chunk = FaceDir::rotate_uvec3(UVec3::new(
@@ -179,7 +188,12 @@ where
     // this will track whether each face in the next layer is visible
     // a face is visible if the block in the previous layer had no face in
     // the opposite direction
-    let mut visible = [true; CHUNK_SIZE_SQUARED];
+    let mut visible: [bool; CHUNK_SIZE_SQUARED] =
+        if let Some(side) = &input.surrounding_sides[FaceDir::FACE_INDEX.as_usize()] {
+            *side.faces
+        } else {
+            [true; CHUNK_SIZE_SQUARED]
+        };
 
     // iterate over each layer of faces we will create
     for layer_index in 0..CHUNK_SIZE_U32 {
@@ -355,6 +369,9 @@ mod face {
         /// Whether this face direction points away from its axis
         const NEGATIVE: bool;
 
+        /// Directional shading for this face
+        const SHADING: f32;
+
         /// Returns the 4 vertices for a face pointing in this direction
         /// * `size`: The size of the face on the two perpendicular directions
         /// When looking at the face head on, the first vertex is at the bottom left and the
@@ -385,6 +402,7 @@ mod face {
         const FACE_INDEX: BlockFaceIndex = BlockFaceIndex::POS_X;
         const OPPOSITE_FACE_INDEX: BlockFaceIndex = BlockFaceIndex::NEG_X;
         const NEGATIVE: bool = false;
+        const SHADING: f32 = 0.7;
 
         fn vertices(size: Vec2) -> [Vec3; 4] {
             [
@@ -411,6 +429,7 @@ mod face {
         const FACE_INDEX: BlockFaceIndex = BlockFaceIndex::POS_Y;
         const OPPOSITE_FACE_INDEX: BlockFaceIndex = BlockFaceIndex::NEG_Y;
         const NEGATIVE: bool = false;
+        const SHADING: f32 = 1.0;
 
         fn vertices(size: Vec2) -> [Vec3; 4] {
             [
@@ -437,6 +456,7 @@ mod face {
         const FACE_INDEX: BlockFaceIndex = BlockFaceIndex::POS_Z;
         const OPPOSITE_FACE_INDEX: BlockFaceIndex = BlockFaceIndex::NEG_Z;
         const NEGATIVE: bool = false;
+        const SHADING: f32 = 0.8;
 
         fn vertices(size: Vec2) -> [Vec3; 4] {
             [
@@ -463,6 +483,7 @@ mod face {
         const FACE_INDEX: BlockFaceIndex = BlockFaceIndex::NEG_X;
         const OPPOSITE_FACE_INDEX: BlockFaceIndex = BlockFaceIndex::POS_X;
         const NEGATIVE: bool = true;
+        const SHADING: f32 = 0.7;
 
         fn vertices(size: Vec2) -> [Vec3; 4] {
             [
@@ -489,6 +510,7 @@ mod face {
         const FACE_INDEX: BlockFaceIndex = BlockFaceIndex::NEG_Y;
         const OPPOSITE_FACE_INDEX: BlockFaceIndex = BlockFaceIndex::POS_Y;
         const NEGATIVE: bool = true;
+        const SHADING: f32 = 0.5;
 
         fn vertices(size: Vec2) -> [Vec3; 4] {
             [
@@ -515,6 +537,7 @@ mod face {
         const FACE_INDEX: BlockFaceIndex = BlockFaceIndex::NEG_Z;
         const OPPOSITE_FACE_INDEX: BlockFaceIndex = BlockFaceIndex::POS_Z;
         const NEGATIVE: bool = true;
+        const SHADING: f32 = 0.6;
 
         fn vertices(size: Vec2) -> [Vec3; 4] {
             [

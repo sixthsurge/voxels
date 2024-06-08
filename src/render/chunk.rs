@@ -12,8 +12,9 @@ use self::{meshing::ChunkMeshInput, vertex::ChunkVertex};
 use crate::{
     render::util::mesh::Mesh,
     terrain::{
-        chunk::{Chunk, CHUNK_SIZE, CHUNK_SIZE_I32},
+        chunk::{side::ChunkSide, Chunk, CHUNK_SIZE, CHUNK_SIZE_I32},
         position_types::ChunkPos,
+        Terrain,
     },
 };
 
@@ -209,7 +210,6 @@ pub struct ChunkRenderGroups {
     /// Receiver for finished chunk meshes
     finished_mesh_rx: Receiver<(Instant, ChunkPos, Vec<ChunkVertex>)>,
 }
-
 impl ChunkRenderGroups {
     pub fn new() -> Self {
         let mesh_generation_threads = rayon::ThreadPoolBuilder::new()
@@ -244,14 +244,6 @@ impl ChunkRenderGroups {
             );
         }
 
-        // update the meshes of any dirty groups
-        for group_pos in self.dirty_group_positions.iter() {
-            if let Some(group) = self.active_groups.get_mut(&group_pos) {
-                group.update_mesh(device);
-            }
-        }
-        self.dirty_group_positions.clear();
-
         // remove any empty groups
         let groups_to_remove = self
             .active_group_positions
@@ -263,15 +255,39 @@ impl ChunkRenderGroups {
             .iter()
             .copied()
             .for_each(|group_pos| self.remove_group(group_pos));
+
+        // update the meshes of any dirty groups
+        for group_pos in self.dirty_group_positions.iter() {
+            if let Some(group) = self.active_groups.get_mut(&group_pos) {
+                group.update_mesh(device);
+            }
+        }
+        self.dirty_group_positions.clear();
     }
 
-    /// Called when a chunk has been modified or loaded and requires meshing
-    pub fn chunk_modified(&mut self, chunk: &Chunk) {
-        self.queue_chunk_for_meshing(chunk);
+    /// Called when a chunk has been loaded and requires meshing
+    pub fn chunk_loaded(&mut self, chunk_pos: ChunkPos, terrain: &Terrain) {
+        // queue chunk and its six orthogonal neighbours for remeshing
+        let chunks_to_remesh = [
+            terrain.get_chunk(chunk_pos),
+            terrain.get_chunk(chunk_pos + ChunkPos::new(1, 0, 0)),
+            terrain.get_chunk(chunk_pos + ChunkPos::new(0, 1, 0)),
+            terrain.get_chunk(chunk_pos + ChunkPos::new(0, 0, 1)),
+            terrain.get_chunk(chunk_pos + ChunkPos::new(-1, 0, 0)),
+            terrain.get_chunk(chunk_pos + ChunkPos::new(0, -1, 0)),
+            terrain.get_chunk(chunk_pos + ChunkPos::new(0, 0, -1)),
+        ];
+
+        chunks_to_remesh
+            .iter()
+            .copied()
+            .filter_map(|chunk_opt| chunk_opt)
+            .for_each(|chunk| {
+                self.queue_chunk_for_meshing(chunk, terrain);
+            });
     }
 
-    /// Called when a chunk has been unloaded and its mesh should be removed
-    pub fn chunk_unloaded(&mut self, chunk_pos: &ChunkPos) {
+    pub fn chunk_unloaded(&mut self, chunk_pos: ChunkPos) {
         let (group_pos, chunk_pos_in_group) =
             Self::get_group_pos_and_chunk_pos_in_group(&chunk_pos);
 
@@ -292,7 +308,7 @@ impl ChunkRenderGroups {
     /// Spawn a new task to generate a chunk's mesh
     /// If this function is multiple times for the same chunk before the mesh generation finishes,
     /// the mesh from the latest call is used
-    fn queue_chunk_for_meshing(&mut self, chunk: &Chunk) {
+    fn queue_chunk_for_meshing(&mut self, chunk: &Chunk, terrain: &Terrain) {
         // instant that `call_chunk_for_meshing` was called
         let instant = Instant::now();
 
@@ -302,11 +318,12 @@ impl ChunkRenderGroups {
         // prepare a snapshot of data about the chunk for the meshing thread to use
         let chunk_pos = chunk.pos();
         let blocks = chunk.as_block_array();
+        let surrounding_sides = Self::get_surrounding_chunk_sides(chunk_pos, terrain);
 
         self.mesh_generation_threads
             .spawn(move || {
-                // move `blocks` to the new thread
-                let blocks = blocks;
+                // move `blocks` and `surrounding sides` to the new thread
+                let (blocks, surrounding_sides) = (blocks, surrounding_sides);
 
                 let translation = chunk_pos
                     .as_ivec3()
@@ -316,6 +333,7 @@ impl ChunkRenderGroups {
                 let vertices = meshing::mesh_greedy(ChunkMeshInput {
                     blocks: &blocks,
                     translation: translation.as_vec3(), // eventually this will be an IVec3
+                    surrounding_sides: &surrounding_sides,
                 });
 
                 if let Err(e) = finished_mesh_tx.send((instant, chunk_pos, vertices)) {
@@ -421,6 +439,33 @@ impl ChunkRenderGroups {
         let group_pos = chunk_pos.div_euclid(IVec3::splat(RENDER_GROUP_SIZE as i32));
         let chunk_pos_in_group = chunk_pos - group_pos * (RENDER_GROUP_SIZE as i32);
         (group_pos, chunk_pos_in_group.as_uvec3())
+    }
+
+    /// Returns the sides of all chunks surrounding `chunk_pos`
+    fn get_surrounding_chunk_sides(
+        center_pos: ChunkPos,
+        terrain: &Terrain,
+    ) -> Vec<Option<ChunkSide>> {
+        let side_px = terrain
+            .get_chunk(center_pos + ChunkPos::new(1, 0, 0))
+            .map(ChunkSide::nx);
+        let side_py = terrain
+            .get_chunk(center_pos + ChunkPos::new(0, 1, 0))
+            .map(ChunkSide::ny);
+        let side_pz = terrain
+            .get_chunk(center_pos + ChunkPos::new(0, 0, 1))
+            .map(ChunkSide::nz);
+        let side_nx = terrain
+            .get_chunk(center_pos + ChunkPos::new(-1, 0, 0))
+            .map(ChunkSide::px);
+        let side_ny = terrain
+            .get_chunk(center_pos + ChunkPos::new(0, -1, 0))
+            .map(ChunkSide::py);
+        let side_nz = terrain
+            .get_chunk(center_pos + ChunkPos::new(0, 0, -1))
+            .map(ChunkSide::pz);
+
+        vec![side_px, side_py, side_pz, side_nx, side_ny, side_nz]
     }
 }
 

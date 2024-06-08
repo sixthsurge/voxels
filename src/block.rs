@@ -16,8 +16,8 @@ pub struct Block {
 // temporary block registry
 // TODO: replace this with a proper system for registering block types
 pub const BLOCK_AIR: BlockId = BlockId(0);
-pub const BLOCK_HAPPY: BlockId = BlockId(1);
-pub const BLOCK_SAD: BlockId = BlockId(2);
+pub const BLOCK_DIRT: BlockId = BlockId(1);
+pub const BLOCK_GRASS: BlockId = BlockId(2);
 pub const BLOCK_COUNT: usize = 3;
 
 pub const BLOCKS: [Block; BLOCK_COUNT] = [
@@ -25,7 +25,7 @@ pub const BLOCKS: [Block; BLOCK_COUNT] = [
     Block {
         model: BlockModel::Empty,
     },
-    // Happy
+    // Dirt
     Block {
         model: BlockModel::FullBlock([
             BlockFace { texture_index: 0 },
@@ -36,14 +36,14 @@ pub const BLOCKS: [Block; BLOCK_COUNT] = [
             BlockFace { texture_index: 0 },
         ]),
     },
-    // Sad
+    // Grass
     Block {
         model: BlockModel::FullBlock([
             BlockFace { texture_index: 1 },
+            BlockFace { texture_index: 2 },
             BlockFace { texture_index: 1 },
             BlockFace { texture_index: 1 },
-            BlockFace { texture_index: 1 },
-            BlockFace { texture_index: 1 },
+            BlockFace { texture_index: 0 },
             BlockFace { texture_index: 1 },
         ]),
     },

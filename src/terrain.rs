@@ -66,7 +66,7 @@ impl Terrain {
     }
 
     /// Returns the chunk at the given position, or none if it is not yet loaded
-    pub fn get_chunk(&self, pos: &ChunkPos) -> Option<&Chunk> {
+    pub fn get_chunk(&self, pos: ChunkPos) -> Option<&Chunk> {
         self.loaded_chunks.get_chunk(pos)
     }
 
@@ -82,17 +82,17 @@ impl Terrain {
     }
 
     /// Schedule a thread to begin loading a chunk
-    fn load_chunk(&mut self, chunk_pos: &ChunkPos) {
+    fn load_chunk(&mut self, chunk_pos: ChunkPos) {
         debug_assert!(!self.loaded_chunks.has_chunk(chunk_pos));
         debug_assert!(!self
             .loading_chunk_positions
-            .contains(chunk_pos));
+            .contains(&chunk_pos));
 
         self.loading_chunk_positions
-            .insert(chunk_pos.clone());
+            .insert(chunk_pos);
 
         // make copies for the worker thread
-        let chunk_pos = *chunk_pos;
+        let chunk_pos = chunk_pos;
         let loaded_chunk_tx = self.loaded_chunk_tx.clone();
 
         self.chunk_loading_threads
@@ -117,7 +117,7 @@ impl Terrain {
     }
 
     /// Unload the chunk with the given position
-    fn unload_chunk(&mut self, chunk_pos: &ChunkPos) {
+    fn unload_chunk(&mut self, chunk_pos: ChunkPos) {
         self.events
             .push(TerrainEvent::ChunkUnloaded(chunk_pos.clone()));
         self.loaded_chunks.remove(chunk_pos);
@@ -134,13 +134,13 @@ impl Terrain {
     fn load_chunks_in_range(&mut self, anchors: &[Anchor]) {
         for anchor in anchors {
             for chunk_pos in anchor.iter_chunk_positions_in_range() {
-                let chunk_loaded = self.loaded_chunks.has_chunk(&chunk_pos);
+                let chunk_loaded = self.loaded_chunks.has_chunk(chunk_pos);
                 let chunk_loading = self
                     .loading_chunk_positions
                     .contains(&chunk_pos);
 
                 if !chunk_loaded && !chunk_loading {
-                    self.load_chunk(&chunk_pos);
+                    self.load_chunk(chunk_pos);
                 }
             }
         }
@@ -173,7 +173,7 @@ impl Terrain {
 
         for (chunk_pos, maintained) in positions.iter().zip(maintained.iter()) {
             if !maintained {
-                self.unload_chunk(chunk_pos);
+                self.unload_chunk(*chunk_pos);
             }
         }
     }
@@ -230,26 +230,26 @@ impl LoadedChunks {
         self.chunks.insert(chunk.pos(), chunk);
     }
 
-    fn remove(&mut self, chunk_pos: &ChunkPos) {
+    fn remove(&mut self, chunk_pos: ChunkPos) {
         debug_assert!(self
             .loaded_chunk_positions
-            .contains(chunk_pos));
+            .contains(&chunk_pos));
 
         self.loaded_chunk_positions.remove(
             self.loaded_chunk_positions
                 .iter()
-                .position(|pos| *pos == *chunk_pos)
+                .position(|pos| *pos == chunk_pos)
                 .unwrap(),
         );
-        self.chunks.remove(chunk_pos);
+        self.chunks.remove(&chunk_pos);
     }
 
-    fn get_chunk(&self, pos: &ChunkPos) -> Option<&Chunk> {
-        self.chunks.get(pos)
+    fn get_chunk(&self, pos: ChunkPos) -> Option<&Chunk> {
+        self.chunks.get(&pos)
     }
 
-    fn has_chunk(&self, pos: &ChunkPos) -> bool {
-        self.chunks.contains_key(pos)
+    fn has_chunk(&self, pos: ChunkPos) -> bool {
+        self.chunks.contains_key(&pos)
     }
 
     fn positions(&self) -> &[ChunkPos] {
