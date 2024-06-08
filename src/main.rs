@@ -1,16 +1,10 @@
 use std::sync::Arc;
 
 use fly_camera::FlyCamera;
-use glam::UVec2;
 use input::Input;
-use render::{
-    camera::{Camera, Projection},
-    context::RenderContext,
-    renderer::Renderer,
-};
+use render::{context::RenderContext, renderer::Renderer};
 use terrain::{Anchor, Terrain};
 use time::{TargetFrameRate, Time};
-use util::transform::Transform;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,

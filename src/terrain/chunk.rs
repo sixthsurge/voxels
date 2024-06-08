@@ -1,10 +1,7 @@
-use std::{borrow::Cow, sync::Arc};
-
-use glam::UVec3;
-
-use crate::block::{self, BlockId};
+use std::sync::Arc;
 
 use super::position_types::{ChunkPos, LocalBlockPos};
+use crate::block::BlockId;
 
 pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_SIZE_LOG2: usize = 5;
@@ -27,31 +24,31 @@ impl Chunk {
         }
     }
 
-    /// returns the chunk data as an array of block IDs
+    /// Returns the chunk data as an array of block IDs
     pub fn as_block_array(&self) -> Arc<[BlockId]> {
         self.storage.as_block_array()
     }
 
-    /// returns the block ID at the given position
-    /// panics if the position is out of bounds
+    /// Returns the block ID at the given position.
+    /// Panics if the position is out of bounds
     pub fn get_block(&self, pos: LocalBlockPos) -> BlockId {
         self.storage.get_block(pos)
     }
 
-    /// returns the block ID at the given position
-    /// panics if the position is out of bounds
+    /// Returns the block ID at the given position.
+    /// Panics if the position is out of bounds
     pub fn set_block(&mut self, pos: LocalBlockPos, new_id: BlockId) {
         self.storage.set_block(pos, new_id)
     }
 
-    /// returns this chunk's position
+    /// Returns this chunk's position
     pub fn pos(&self) -> ChunkPos {
         self.pos
     }
 }
 
-/// underlying block storage mechanism for the chunk.
-/// this is separated so that `Chunk` and its users don't have to worry about the underlying
+/// Underlying block storage mechanism for the chunk.
+/// This is separated so that `Chunk` and its users don't have to worry about the underlying
 /// mechanism and can pretend it is just a flat array of blocks
 #[derive(Clone, Debug)]
 struct ChunkStorage {
@@ -63,18 +60,18 @@ impl ChunkStorage {
         Self { blocks }
     }
 
-    /// returns the chunk data as an array of block IDs
+    /// Returns the chunk data as an array of block IDs
     fn as_block_array(&self) -> Arc<[BlockId]> {
         self.blocks.clone().into()
     }
 
-    /// returns the block ID at the given position
+    /// Returns the block ID at the given position
     /// panics if the position is out of bounds
     fn get_block(&self, pos: LocalBlockPos) -> BlockId {
         self.blocks[pos.as_array_index()]
     }
 
-    /// returns the block ID at the given position
+    /// Returns the block ID at the given position
     /// panics if the position is out of bounds
     fn set_block(&mut self, pos: LocalBlockPos, new_id: BlockId) {
         self.blocks[pos.as_array_index()] = new_id;

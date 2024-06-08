@@ -17,26 +17,26 @@ pub mod position_types;
 
 mod temporary_generation;
 
-/// manages the voxel terrain, responsible for loading/unloading chunks and scheduling terrain
+/// Manages the voxel terrain, responsible for loading/unloading chunks and scheduling terrain
 /// generation
 #[derive(Debug)]
 pub struct Terrain {
-    /// currently loaded chunks
+    /// Currently loaded chunks
     loaded_chunks: LoadedChunks,
-    /// outstanding terrain events
+    /// Outstanding terrain events
     events: Vec<TerrainEvent>,
-    /// list of positions of chunks that are currently loading
+    /// List of positions of chunks that are currently loading
     loading_chunk_positions: HashSet<ChunkPos>,
-    /// thread pool for loading chunks
+    /// Thread pool for loading chunks
     chunk_loading_threads: rayon::ThreadPool,
-    /// sender for loaded chunks
+    /// Sender for loaded chunks
     loaded_chunk_tx: Sender<Chunk>,
-    /// receiver for loaded chunks
+    /// Receiver for loaded chunks
     loaded_chunk_rx: Receiver<Chunk>,
 }
 
 impl Terrain {
-    /// number of threads to use for chunk loading
+    /// Number of threads to use for chunk loading
     pub const CHUNK_LOADING_THREAD_COUNT: usize = 2;
 
     pub fn new() -> Self {
@@ -57,7 +57,7 @@ impl Terrain {
         }
     }
 
-    /// called each frame to update the Terrain
+    /// Called each frame to update the Terrain
     /// * `world_anchors` - points around which chunks are loaded and unloaded
     pub fn update(&mut self, anchors: &[Anchor]) {
         self.check_for_newly_loaded_chunks();
@@ -65,23 +65,23 @@ impl Terrain {
         self.unload_chunks_not_in_range(anchors);
     }
 
-    /// returns the chunk at the given position, or none if it is not yet loaded
+    /// Returns the chunk at the given position, or none if it is not yet loaded
     pub fn get_chunk(&self, pos: &ChunkPos) -> Option<&Chunk> {
         self.loaded_chunks.get_chunk(pos)
     }
 
-    /// returns an iterator over all events that have occurred since the last call to
+    /// Returns an iterator over all events that have occurred since the last call to
     /// `clear_events()` in chronological order
     pub fn events(&self) -> impl Iterator<Item = &TerrainEvent> {
         self.events.iter()
     }
 
-    /// clear the list of outstanding events
+    /// Clear the list of outstanding events
     pub fn clear_events(&mut self) {
         self.events.clear();
     }
 
-    /// schedule a thread to begin loading a chunk
+    /// Schedule a thread to begin loading a chunk
     fn load_chunk(&mut self, chunk_pos: &ChunkPos) {
         debug_assert!(!self.loaded_chunks.has_chunk(chunk_pos));
         debug_assert!(!self
@@ -99,7 +99,7 @@ impl Terrain {
             .spawn(move || {
                 let chunk = temporary_generation::generate_chunk(chunk_pos);
                 if let Err(e) = loaded_chunk_tx.send(chunk) {
-                    log::error!(
+                    log::trace!(
                         "sending chunk from loading thread to main thread returned error: {}",
                         e
                     );
@@ -107,7 +107,7 @@ impl Terrain {
             });
     }
 
-    /// called once a chunk has finished loading and is ready to be added to the world
+    /// Called once a chunk has finished loading and is ready to be added to the world
     fn finished_loading_chunk(&mut self, chunk: Chunk) {
         self.events
             .push(TerrainEvent::ChunkLoaded(chunk.pos()));
@@ -116,21 +116,21 @@ impl Terrain {
         self.loaded_chunks.add(chunk);
     }
 
-    /// unload the chunk with the given position
+    /// Unload the chunk with the given position
     fn unload_chunk(&mut self, chunk_pos: &ChunkPos) {
         self.events
             .push(TerrainEvent::ChunkUnloaded(chunk_pos.clone()));
         self.loaded_chunks.remove(chunk_pos);
     }
 
-    /// check receiver for any chunks loaded by the worker threads
+    /// Check receiver for any chunks loaded by the worker threads
     fn check_for_newly_loaded_chunks(&mut self) {
         while let Ok(chunk) = self.loaded_chunk_rx.try_recv() {
             self.finished_loading_chunk(chunk);
         }
     }
 
-    /// start loading any chunks in range of an anchor that aren't already loaded or loading
+    /// Start loading any chunks in range of an anchor that aren't already loaded or loading
     fn load_chunks_in_range(&mut self, anchors: &[Anchor]) {
         for anchor in anchors {
             for chunk_pos in anchor.iter_chunk_positions_in_range() {
@@ -146,7 +146,7 @@ impl Terrain {
         }
     }
 
-    /// unload any chunks not in range of an anchor
+    /// Unload any chunks not in range of an anchor
     fn unload_chunks_not_in_range(&mut self, anchors: &[Anchor]) {
         // must be cloned to avoid iterating and mutating at the same time
         let positions: Vec<_> = self.loaded_chunks.positions().into();
@@ -179,19 +179,19 @@ impl Terrain {
     }
 }
 
-/// points that the world is loaded around
+/// Points that the world is loaded around
 pub struct Anchor {
     pub position: Vec3,
     pub load_radius: i32,
 }
 
 impl Anchor {
-    /// returns the position of the chunk that the anchor resides in
+    /// Returns the position of the chunk that the anchor resides in
     pub fn get_center_chunk(&self) -> ChunkPos {
         ChunkPos::from(self.position.as_ivec3() >> (CHUNK_SIZE_LOG2 as i32))
     }
 
-    /// returns an iterator over all chunk positions that are in range of the anchor
+    /// Returns an iterator over all chunk positions that are in range of the anchor
     #[inline]
     pub fn iter_chunk_positions_in_range<'a>(&'a self) -> impl Iterator<Item = ChunkPos> + 'a {
         let load_range = -self.load_radius..=self.load_radius;

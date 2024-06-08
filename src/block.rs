@@ -2,11 +2,11 @@ use self::model::{BlockFace, BlockModel};
 
 pub mod model;
 
-/// numeric identifier for a `Block`
+/// Numeric identifier for a `Block`
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BlockId(pub u16);
 
-/// represents a kind of block in the world
+/// Represents a kind of block in the world
 #[derive(Clone, Debug)]
 pub struct Block {
     pub model: BlockModel,

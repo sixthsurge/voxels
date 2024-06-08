@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-/// stores vertices and indices to be uploaded to the GPU as a `Mesh`
+/// Stores vertices and indices to be uploaded to the GPU as a `Mesh`
 #[derive(Debug)]
 pub struct MeshData<V, I>
 where
@@ -17,7 +17,7 @@ where
     V: Vertex,
     I: Index,
 {
-    /// empty mesh data with no vertices or indices
+    /// Empty mesh data with no vertices or indices
     pub fn empty() -> Self {
         Self {
             vertices: Vec::new(),
@@ -25,13 +25,13 @@ where
         }
     }
 
-    /// creates a new mesh on the GPU with the vertices and indices
+    /// Creates a new mesh on the GPU with the vertices and indices
     pub fn create_mesh(&self, device: &wgpu::Device) -> Mesh {
         Mesh::new(device, &self.vertices, &self.indices)
     }
 }
 
-/// holds handles to a vertex and index buffer
+/// Holds handles to a vertex and index buffer.
 /// once created, `Mesh` does not hold the vertices/indices in memory - these are stored on the GPU
 #[derive(Debug)]
 pub struct Mesh {

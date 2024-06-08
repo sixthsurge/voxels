@@ -4,10 +4,10 @@ use glam::{UVec2, UVec3};
 use image::GenericImageView;
 use winit::dpi::PhysicalSize;
 
-/// format to use when loading images (hardcoded)
+/// Format to use when loading images (hardcoded)
 pub const IMAGE_FORMAT: image::ImageFormat = image::ImageFormat::Png;
 
-/// variables that can be chosen when creating a texture
+/// Variables that can be chosen when creating a texture
 #[derive(Clone, Debug)]
 pub struct TextureConfig {
     pub label: wgpu::Label<'static>,
@@ -27,13 +27,13 @@ impl Default for TextureConfig {
     }
 }
 
-/// trait for types holding a `wgpu::Texture`
+/// Trait for types holding a `wgpu::Texture`
 pub trait TextureHolder {
     fn texture(&self) -> &wgpu::Texture;
     fn size(&self) -> UVec3;
     fn view_dimension(&self) -> wgpu::TextureViewDimension;
 
-    /// create a `wgpu::TextureView` and `wgpu::Sampler` for this texture holder
+    /// Create a `wgpu::TextureView` and `wgpu::Sampler` for this texture holder
     /// and wrap them in one object
     fn with_view_and_sampler(
         self,
@@ -47,7 +47,7 @@ pub trait TextureHolder {
     }
 }
 
-/// helper type holding a `wgpu::Texture` that is loaded from an image file
+/// Helper type holding a `wgpu::Texture` that is loaded from an image file
 #[derive(Debug)]
 pub struct ImageTexture {
     texture: wgpu::Texture,
@@ -55,7 +55,7 @@ pub struct ImageTexture {
 }
 
 impl ImageTexture {
-    /// create an `ImageTexture` from an existing `image::Image`
+    /// Create an `ImageTexture` from an existing `image::Image`
     pub fn from_image(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -107,7 +107,7 @@ impl ImageTexture {
         }
     }
 
-    /// create an image texture from a file
+    /// Create an image texture from a file
     pub fn from_file(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -137,7 +137,7 @@ impl TextureHolder for ImageTexture {
     }
 }
 
-/// helper type holding a `wgpu::Texture` that used as a texture array
+/// Helper type holding a `wgpu::Texture` that used as a texture array
 #[derive(Debug)]
 pub struct ArrayTexture {
     texture: wgpu::Texture,
@@ -146,7 +146,7 @@ pub struct ArrayTexture {
 }
 
 impl ArrayTexture {
-    /// create an array texture from a slice of existing `image::Image`s
+    /// Create an array texture from a slice of existing `image::Image`s
     pub fn from_images(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -220,7 +220,7 @@ impl ArrayTexture {
         })
     }
 
-    /// create an array texture from a slice of file paths to images
+    /// Create an array texture from a slice of file paths to images
     pub fn from_files(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -262,7 +262,7 @@ impl TextureHolder for ArrayTexture {
     }
 }
 
-/// helper type holding a `wgpu::Texture` that is used as a depth texture
+/// Helper type holding a `wgpu::Texture` that is used as a depth texture
 #[derive(Debug)]
 pub struct DepthTexture {
     texture: wgpu::Texture,
@@ -304,7 +304,7 @@ impl DepthTexture {
         }
     }
 
-    /// returns a new depth texture that is the same but resized
+    /// Returns a new depth texture that is the same but resized
     /// (for when the window gets resized)
     pub fn recreate(&self, device: &wgpu::Device, new_size: PhysicalSize<u32>) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {

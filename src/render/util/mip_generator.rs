@@ -1,6 +1,6 @@
 // based on https://github.com/gfx-rs/wgpu/blob/trunk/examples/src/mipmap/mod.rs
 
-/// generates mips for 2D textures and texture arrays
+/// Generates mips for 2D textures and texture arrays
 pub struct MipGenerator {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,

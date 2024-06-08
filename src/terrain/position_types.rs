@@ -3,7 +3,7 @@ use glam::{IVec3, UVec3, Vec3};
 
 use super::chunk::{CHUNK_SIZE, CHUNK_SIZE_I32, CHUNK_SIZE_LOG2, CHUNK_SIZE_U32};
 
-/// position of a block in the world
+/// Position of a block in the world
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Add, From, Sub)]
 pub struct GlobalBlockPos(IVec3);
 
@@ -19,7 +19,7 @@ impl GlobalBlockPos {
     }
 }
 
-/// position of a block in a chunk
+/// Position of a block in a chunk
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Add, From, Sub)]
 pub struct LocalBlockPos(UVec3);
 
@@ -50,7 +50,7 @@ impl LocalBlockPos {
     }
 }
 
-/// position of a chunk in the world
+/// Position of a chunk in the world
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Add, From, Sub)]
 pub struct ChunkPos(IVec3);
 

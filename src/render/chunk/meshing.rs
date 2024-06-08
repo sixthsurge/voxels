@@ -1,29 +1,25 @@
-use std::ops::Index;
-
 use glam::{UVec2, UVec3, Vec2, Vec3};
 
+use super::vertex::ChunkVertex;
 use crate::{
     block::{model::BlockFace, BlockId, BLOCKS},
-    render::util::mesh::{MeshData, Vertex},
-    terrain::chunk::{CHUNK_SIZE, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
+    terrain::chunk::{CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
 };
 
-use super::vertex::ChunkVertex;
-
-/// data about a chunk needed to generate its mesh
+/// Data about a chunk needed to generate its mesh
 #[derive(Clone, Copy)]
 pub struct ChunkMeshInput<'a> {
-    /// array of blocks in the chunk, ordered by z, then y, then x
+    /// Array of blocks in the chunk, ordered by z, then y, then x
     pub blocks: &'a [BlockId],
-    /// translation to encode in the mesh
+    /// Translation to encode in the mesh
     pub translation: Vec3,
 }
 
-/// creates the vertices for a chunk mesh where faces inside the volume are skipped but no
+/// Creates the vertices for a chunk mesh where faces inside the volume are skipped but no
 /// faces are merged.
-/// the mesh should be rendered an index buffer that repeats the pattern 0, 1, 2, 2, 3, 0
-/// compared to `mesh_greedy`, meshing is much faster but the resulting meshes
-/// are more complex and therefore slower to render.
+/// The mesh should be rendered an index buffer that repeats the pattern 0, 1, 2, 2, 3, 0.
+/// Compared to `mesh_greedy`, meshing is much faster but the resulting meshes
+/// are more complex and therefore slower to render
 pub fn mesh_culled(input: ChunkMeshInput) -> Vec<ChunkVertex> {
     let mut vertices = Vec::new();
 
@@ -37,9 +33,9 @@ pub fn mesh_culled(input: ChunkMeshInput) -> Vec<ChunkVertex> {
     vertices
 }
 
-/// creates a chunk mesh where faces inside the volume are skipped and
-/// compatible faces are merged greedily
-/// compared to `culled`, meshing is much slower but the resulting meshes
+/// Creates a chunk mesh where faces inside the volume are skipped and
+/// compatible faces are merged greedily.
+/// Compared to `culled`, meshing is much slower but the resulting meshes
 /// are simpler and therefore faster to render
 pub fn mesh_greedy(input: ChunkMeshInput) -> Vec<ChunkVertex> {
     let mut vertices = Vec::new();
@@ -54,7 +50,7 @@ pub fn mesh_greedy(input: ChunkMeshInput) -> Vec<ChunkVertex> {
     vertices
 }
 
-/// decides whether the two faces can be merged
+/// Decides whether the two faces can be merged
 fn can_merge_faces<FaceDir>(first: Option<BlockFace>, second: Option<BlockFace>) -> bool
 where
     FaceDir: face::FaceDir,
@@ -64,7 +60,7 @@ where
     faces_match
 }
 
-/// add a single axis-aligned face to the mesh
+/// Add a single axis-aligned face to the mesh
 /// `origin` is the position of the cell with the smallest coordinates that this face covers
 fn add_face<FaceDir>(
     vertices: &mut Vec<ChunkVertex>,
@@ -88,7 +84,7 @@ fn add_face<FaceDir>(
     );
 }
 
-/// add all visible faces for the given face direction
+/// Add all visible faces for the given face direction
 fn add_visible_faces<FaceDir>(vertices: &mut Vec<ChunkVertex>, input: ChunkMeshInput)
 where
     FaceDir: face::FaceDir,
@@ -132,7 +128,7 @@ where
     }
 }
 
-/// greedily merge visible faces with the given direction and add them to the mesh
+/// Greedily merge visible faces with the given direction and add them to the mesh
 fn add_greedy_merged_faces<FaceDir>(vertices: &mut Vec<ChunkVertex>, input: ChunkMeshInput)
 where
     FaceDir: face::FaceDir,
@@ -145,7 +141,7 @@ where
     //   U is the direction of the first texture coordinate
     //   V is the direction of the second texture coordinate
 
-    /// evaluate whether the original face can be merged with the face with coordinates
+    /// Evaluate whether the original face can be merged with the face with coordinates
     /// `merge_candidate_u` and `merge_candidate_v` in the layer with position `layer_pos`
     /// returns two booleans: whether the face can be merged, and whether the block with the
     /// same U and V coordinates in the following layer is visible
@@ -319,7 +315,7 @@ where
     }
 }
 
-/// generate indices for the meshes returned by `mesh_culled` and `mesh_greedy`
+/// Generate indices for the meshes returned by `mesh_culled` and `mesh_greedy`
 pub fn generate_indices(vertex_count: usize) -> Vec<u32> {
     const INDICES: [u32; 6] = [0, 1, 2, 2, 3, 0];
 
@@ -348,32 +344,32 @@ mod face {
 
     use crate::block::model::BlockFaceIndex;
 
-    /// face directions
+    /// Face directions
     pub trait FaceDir {
-        /// index assigned to this face direction
+        /// Index assigned to this face direction
         const FACE_INDEX: BlockFaceIndex;
 
-        /// index assigned to the opposite face direction
+        /// Index assigned to the opposite face direction
         const OPPOSITE_FACE_INDEX: BlockFaceIndex;
 
-        /// whether this face direction points away from its axis
+        /// Whether this face direction points away from its axis
         const NEGATIVE: bool;
 
-        /// returns the 4 vertices for a face of this direction
-        /// the size of the face on the two parallel directions is
-        /// when looking at the face head on, the first vertex is at
-        /// the bottom left and the following vertices proceed anticlockwise
+        /// Returns the 4 vertices for a face pointing in this direction
+        /// * `size`: The size of the face on the two perpendicular directions
+        /// When looking at the face head on, the first vertex is at the bottom left and the
+        /// following vertices proceed anticlockwise
         fn vertices(size: Vec2) -> [Vec3; 4];
 
-        /// given a vector whose x and y components are specified parallel to the face and whose z
-        /// component is specified perpendicular to the face, converts it to absolute coordinates by
-        /// swizzling
+        /// Given a vector whose x and y components are specified parallel to the face and whose z
+        /// component is specified perpendicular to the face, converts it to absolute coordinates
+        /// by swizzling
         /// rotate_vec3(Vec3::new(0.0, 0.0, 1.0)) gives the axis of the face
         /// rotate_vec3(Vec3::new(1.0, 0.0, 0.0)) gives a tangent of the face
         /// rotate_vec3(Vec3::new(0.0, 1.0, 0.0)) gives another tangent of the face
         fn rotate_vec3(v: Vec3) -> Vec3;
 
-        /// given a vector whose x and y components are specified parallel to the face and whose z
+        /// Given a vector whose x and y components are specified parallel to the face and whose z
         /// component is specified perpendicular to the face, converts it to absolute coordinates by
         /// swizzling
         /// rotate_uvec3(UVec3::new(0, 0, 1)) gives the axis of the face

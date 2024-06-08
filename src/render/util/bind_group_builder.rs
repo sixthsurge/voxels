@@ -1,6 +1,6 @@
 use wgpu::hal::AccelerationStructureTriangleTransform;
 
-/// helper struct to construct bind groups and bind group layouts together using the builder
+/// Helper struct to construct bind groups and bind group layouts together using the builder
 /// pattern
 pub struct BindGroupBuilder<'a> {
     label: Option<&'static str>,

@@ -1,12 +1,11 @@
 use bracket_noise::prelude::*;
 use glam::UVec3;
 
-use crate::block::{BlockId, BLOCK_HAPPY, BLOCK_SAD};
-
 use super::{
     chunk::{Chunk, CHUNK_SIZE, CHUNK_SIZE_CUBED, CHUNK_SIZE_U32},
     position_types::ChunkPos,
 };
+use crate::block::{BlockId, BLOCK_HAPPY, BLOCK_SAD};
 
 pub fn generate_chunk(pos: ChunkPos) -> Chunk {
     let mut blocks: Vec<_> = (0..CHUNK_SIZE_CUBED)

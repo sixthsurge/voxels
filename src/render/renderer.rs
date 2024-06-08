@@ -1,31 +1,25 @@
-use glam::{IVec3, UVec2};
-
+use super::{
+    camera::Projection,
+    chunk::{vertex::ChunkVertex, ChunkRenderGroups, RenderGroupCreateContext},
+    util::texture::{ArrayTexture, DepthTexture, TextureConfig, TextureHolder, WithViewAndSampler},
+};
 use crate::{
     render::{
         camera::Camera,
-        chunk::vertex::ChunkVertex,
         context::RenderContext,
         util::{
             bind_group_builder::BindGroupBuilder, mip_generator::MipGenerator,
             pipeline_builder::RenderPipelineBuilder,
         },
     },
-    terrain::{chunk::CHUNK_SIZE_I32, event::TerrainEvent, position_types::ChunkPos, Terrain},
+    terrain::{event::TerrainEvent, Terrain},
     util::transform::Transform,
     DEGREE,
 };
 
-use super::{
-    camera::Projection,
-    chunk::{
-        meshing::{mesh_greedy, ChunkMeshInput},
-        render_group::{ChunkRenderGroup, CHUNK_RENDER_GROUP_SIZE},
-    },
-    util::texture::{ArrayTexture, DepthTexture, TextureConfig, TextureHolder, WithViewAndSampler},
-};
-
 pub struct Renderer {
     camera: Camera,
+    chunk_render_groups: ChunkRenderGroups,
     depth_texture: WithViewAndSampler<DepthTexture>,
     terrain_textures: WithViewAndSampler<ArrayTexture>,
     terrain_pipeline: wgpu::RenderPipeline,
@@ -34,7 +28,6 @@ pub struct Renderer {
     global_uniforms_buffer: wgpu::Buffer,
     global_uniforms_bind_group: wgpu::BindGroup,
     render_group_bind_group_layout: wgpu::BindGroupLayout,
-    chunk_render_groups: Vec<ChunkRenderGroup>,
 }
 
 impl Renderer {
@@ -51,6 +44,8 @@ impl Renderer {
                 z_far: 1000.0,
             },
         );
+
+        let chunk_render_groups = ChunkRenderGroups::new();
 
         let depth_texture = DepthTexture::new(
             &cx.device,
@@ -163,10 +158,9 @@ impl Renderer {
             .with_depth(Self::DEPTH_FORMAT, wgpu::CompareFunction::Less)
             .build(&cx.device);
 
-        let chunk_render_groups = Vec::new();
-
         Self {
             camera,
+            chunk_render_groups,
             depth_texture,
             terrain_pipeline,
             terrain_textures,
@@ -175,7 +169,6 @@ impl Renderer {
             global_uniforms_buffer,
             global_uniforms_bind_group,
             render_group_bind_group_layout,
-            chunk_render_groups,
         }
     }
 
@@ -194,29 +187,26 @@ impl Renderer {
         for event in terrain.events() {
             match event {
                 TerrainEvent::ChunkLoaded(chunk_pos) => {
-                    let Some(chunk) = terrain.get_chunk(chunk_pos) else {
-                        // this may actually be None, for example if the chunk finishes loading and
-                        // is immediately unloaded
-                        continue;
-                    };
-                    let blocks = chunk.as_block_array();
-                    let chunk_pos_in_group = chunk_pos
-                        .as_ivec3()
-                        .rem_euclid(IVec3::splat(CHUNK_RENDER_GROUP_SIZE as i32));
-                    let mesh_input = ChunkMeshInput {
-                        blocks: &blocks,
-                        translation: (chunk_pos_in_group * CHUNK_SIZE_I32).as_vec3(),
-                    };
-                    let vertices = mesh_greedy(mesh_input);
-                    let chunk_render_group =
-                        self.get_render_group_for_chunk(*chunk_pos, &cx.device);
-                    chunk_render_group
-                        .set_vertices_for_chunk(chunk_pos_in_group.as_uvec3(), vertices);
-                    chunk_render_group.update_mesh(&cx.device);
+                    let chunk = terrain.get_chunk(chunk_pos);
+                    if let Some(chunk) = chunk {
+                        self.chunk_render_groups
+                            .chunk_modified(chunk);
+                    }
                 }
-                _ => (),
+                TerrainEvent::ChunkUnloaded(chunk_pos) => {
+                    self.chunk_render_groups
+                        .chunk_unloaded(&chunk_pos);
+                }
             }
         }
+
+        self.chunk_render_groups.update(
+            &cx.device,
+            RenderGroupCreateContext {
+                device: &cx.device,
+                bind_group_layout: &self.render_group_bind_group_layout,
+            },
+        );
     }
 
     pub fn render(&mut self, cx: &RenderContext, surface_texture_view: &wgpu::TextureView) {
@@ -265,9 +255,9 @@ impl Renderer {
         render_pass.set_bind_group(0, &self.texture_array_bind_group, &[]);
         render_pass.set_bind_group(1, &self.global_uniforms_bind_group, &[]);
 
-        for chunk_render_group in &self.chunk_render_groups {
+        for chunk_render_group in self.chunk_render_groups.iter() {
             if let Some(mesh) = chunk_render_group.mesh() {
-                render_pass.set_bind_group(2, chunk_render_group.uniforms_bind_group(), &[]);
+                render_pass.set_bind_group(2, chunk_render_group.bind_group(), &[]);
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer().slice(..));
                 render_pass.set_index_buffer(mesh.index_buffer().slice(..), mesh.index_format());
                 render_pass.draw_indexed(0..mesh.index_count(), 0, 0..1);
@@ -307,37 +297,6 @@ impl Renderer {
     /// Returns a mutable reference to the camera used to render the world
     pub fn camera_mut(&mut self) -> &mut Camera {
         &mut self.camera
-    }
-
-    /// Given a chunk position, returns a mutating reference to render group for that chunk
-    /// if the render group does not exist, it will be created
-    fn get_render_group_for_chunk(
-        &mut self,
-        chunk_pos: ChunkPos,
-        device: &wgpu::Device,
-    ) -> &mut ChunkRenderGroup {
-        let render_group_pos = chunk_pos
-            .as_ivec3()
-            .div_euclid(IVec3::splat(CHUNK_RENDER_GROUP_SIZE as i32));
-
-        let group_index = self
-            .chunk_render_groups
-            .iter_mut()
-            .position(|g| g.pos() == render_group_pos);
-
-        if let Some(group_index) = group_index {
-            &mut self.chunk_render_groups[group_index]
-        } else {
-            self.chunk_render_groups
-                .push(ChunkRenderGroup::new(
-                    render_group_pos,
-                    &device,
-                    &self.render_group_bind_group_layout,
-                ));
-            self.chunk_render_groups
-                .last_mut()
-                .unwrap()
-        }
     }
 }
 

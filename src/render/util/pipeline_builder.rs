@@ -1,6 +1,6 @@
 use super::mesh::Vertex;
 
-/// helper struct to create render pipelines and their layouts using the builder pattern
+/// Helper struct to create render pipelines and their layouts using the builder pattern
 pub struct RenderPipelineBuilder<'a> {
     label: Option<&'static str>,
     bind_group_layouts: Vec<&'a wgpu::BindGroupLayout>,
