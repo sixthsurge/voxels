@@ -74,7 +74,14 @@ impl Renderer {
             },
         )
         .expect("failed to load terrain textures")
-        .with_view_and_sampler(&cx.device, wgpu::SamplerDescriptor::default());
+        .with_view_and_sampler(
+            &cx.device,
+            wgpu::SamplerDescriptor {
+                address_mode_u: wgpu::AddressMode::Repeat,
+                address_mode_v: wgpu::AddressMode::Repeat,
+                ..Default::default()
+            },
+        );
 
         // generate mipmaps
         let mut mip_encoder = cx

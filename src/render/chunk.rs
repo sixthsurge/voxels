@@ -416,7 +416,7 @@ impl ChunkRenderGroups {
 
     /// Given a chunk position, returns the position of its render group in the grid and the
     /// position of the chunk in the render group
-    pub fn get_group_pos_and_chunk_pos_in_group(chunk_pos: &ChunkPos) -> (IVec3, UVec3) {
+    fn get_group_pos_and_chunk_pos_in_group(chunk_pos: &ChunkPos) -> (IVec3, UVec3) {
         let chunk_pos = chunk_pos.as_ivec3();
         let group_pos = chunk_pos.div_euclid(IVec3::splat(RENDER_GROUP_SIZE as i32));
         let chunk_pos_in_group = chunk_pos - group_pos * (RENDER_GROUP_SIZE as i32);
