@@ -9,6 +9,7 @@ pub struct RenderContext {
     pub surface_config: wgpu::SurfaceConfiguration,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    pub window_size: PhysicalSize<u32>,
 }
 
 impl RenderContext {
@@ -71,6 +72,7 @@ impl RenderContext {
         surface.configure(&device, &surface_config);
 
         Self {
+            window_size,
             surface,
             surface_config,
             device,
@@ -83,6 +85,7 @@ impl RenderContext {
     }
 
     pub fn resized(&mut self, new_size: PhysicalSize<u32>) {
+        self.window_size = new_size;
         self.surface_config.width = new_size.width;
         self.surface_config.height = new_size.height;
         self.surface

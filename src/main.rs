@@ -35,11 +35,10 @@ const DEGREE: f32 = 180.0 / std::f32::consts::PI;
 
 struct State {
     window: Arc<Window>,
-    render_context: RenderContext,
+    render_cx: RenderContext,
     time: Time,
     input: Input,
     terrain: Terrain,
-    camera: Camera,
     renderer: Renderer,
     fly_camera: FlyCamera,
     fly_camera_active: bool,
@@ -49,32 +48,18 @@ struct State {
 impl State {
     fn new(window: Arc<Window>) -> Self {
         let window_size = window.inner_size();
-        let render_context = RenderContext::new(window.clone());
+        let render_cx = RenderContext::new(window.clone());
         let input = Input::new();
         let time = Time::new(TargetFrameRate::UnlimitedOrVsync);
-        let camera = Camera::new(
-            Transform::IDENTITY,
-            Projection::Perspective {
-                aspect_ratio: window.inner_size().width as f32 / window.inner_size().height as f32,
-                fov_y_radians: 70.0 * DEGREE,
-                z_near: 0.01,
-                z_far: 1000.0,
-            },
-        );
         let terrain = Terrain::new();
-        let renderer = Renderer::new(
-            &render_context,
-            UVec2::new(window_size.width, window_size.height),
-        );
-
+        let renderer = Renderer::new(&render_cx);
         let fly_camera = FlyCamera::default();
 
         Self {
             window,
-            render_context,
+            render_cx,
             time,
             input,
-            camera,
             terrain,
             renderer,
             fly_camera,
@@ -92,12 +77,8 @@ impl State {
     }
 
     fn resized(&mut self, new_size: PhysicalSize<u32>) {
-        self.render_context.resized(new_size);
-        self.renderer.resized(
-            &self.render_context,
-            UVec2::new(new_size.width, new_size.height),
-        );
-        self.camera.resized(new_size);
+        self.render_cx.resized(new_size);
+        self.renderer.resized(&self.render_cx);
     }
 
     fn update(&mut self) {
@@ -113,6 +94,7 @@ impl State {
             self.fly_camera
                 .update(&self.input, &self.time);
         }
+        self.renderer.camera_mut().transform = self.fly_camera.get_transform();
 
         self.terrain.update(&[Anchor {
             position: self.fly_camera.position,
@@ -120,20 +102,14 @@ impl State {
         }]);
 
         self.renderer
-            .update(&self.render_context, &self.terrain);
+            .update(&self.render_cx, &self.terrain);
         self.terrain.clear_events();
-
-        self.camera.transform = self.fly_camera.get_transform();
-        self.renderer.set_camera(&self.camera);
 
         self.input.reset();
     }
 
     fn render(&mut self) {
-        let Some(surface_texture) = self
-            .render_context
-            .get_surface_texture()
-        else {
+        let Some(surface_texture) = self.render_cx.get_surface_texture() else {
             log::warn!("couldn't acquire surface texture");
             return;
         };
@@ -143,7 +119,7 @@ impl State {
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         self.renderer
-            .render(&self.render_context, &surface_texture_view);
+            .render(&self.render_cx, &surface_texture_view);
 
         surface_texture.present();
     }

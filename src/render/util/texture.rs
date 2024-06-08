@@ -1,82 +1,292 @@
-use std::{fs::File, io::BufReader, path::Path};
+use std::{fs::File, io::BufReader, ops::Deref, path::Path};
 
 use glam::{UVec2, UVec3};
-use image::{GenericImageView, ImageFormat};
-use wgpu::{Device, TextureUsages, TextureViewDimension};
+use image::GenericImageView;
+use winit::dpi::PhysicalSize;
 
-/// helper struct grouping a `wgpu::Texture` with its corresponding `wgpu::TextureView` and
-/// `wgpu::Sampler` and easing the creation of different kinds of texture
-pub struct Texture {
-    texture: wgpu::Texture,
-    view: wgpu::TextureView,
-    sampler: wgpu::Sampler,
-    size: UVec3,
+/// format to use when loading images (hardcoded)
+pub const IMAGE_FORMAT: image::ImageFormat = image::ImageFormat::Png;
+
+/// variables that can be chosen when creating a texture
+#[derive(Clone, Debug)]
+pub struct TextureConfig {
+    pub label: wgpu::Label<'static>,
+    pub usage: wgpu::TextureUsages,
+    pub mip_level_count: u32,
 }
 
-impl Texture {
-    pub fn new(
-        device: &wgpu::Device,
-        size: UVec3,
-        dimension: wgpu::TextureDimension,
-        format: wgpu::TextureFormat,
-        usage: wgpu::TextureUsages,
-        mip_level_count: u32,
-        address_mode: wgpu::AddressMode,
-        mag_filter: wgpu::FilterMode,
-        min_filter: wgpu::FilterMode,
-        mipmap_filter: wgpu::FilterMode,
-        label: wgpu::Label,
-    ) -> Self {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d {
-                width: size.x,
-                height: size.y,
-                depth_or_array_layers: size.z,
-            },
-            mip_level_count,
-            sample_count: 1,
-            dimension,
-            format,
-            usage,
-            label,
-            view_formats: &[],
-        });
-
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: address_mode,
-            address_mode_v: address_mode,
-            address_mode_w: address_mode,
-            mag_filter,
-            min_filter,
-            mipmap_filter,
-            ..Default::default()
-        });
-
+impl Default for TextureConfig {
+    fn default() -> Self {
         Self {
-            texture,
-            view,
-            sampler,
-            size,
+            label: None,
+            usage: wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            mip_level_count: 1,
         }
     }
+}
 
-    pub fn new_depth_texture(
-        device: &Device,
-        size: UVec2,
-        format: wgpu::TextureFormat,
-        label: wgpu::Label,
+/// trait for types holding a `wgpu::Texture`
+pub trait TextureHolder {
+    fn texture(&self) -> &wgpu::Texture;
+    fn size(&self) -> UVec3;
+    fn view_dimension(&self) -> wgpu::TextureViewDimension;
+
+    /// create a `wgpu::TextureView` and `wgpu::Sampler` for this texture holder
+    /// and wrap them in one object
+    fn with_view_and_sampler(
+        self,
+        device: &wgpu::Device,
+        sampler_descriptor: wgpu::SamplerDescriptor<'static>,
+    ) -> WithViewAndSampler<Self>
+    where
+        Self: Sized,
+    {
+        WithViewAndSampler::wrap(device, self, sampler_descriptor)
+    }
+}
+
+/// helper type holding a `wgpu::Texture` that is loaded from an image file
+#[derive(Debug)]
+pub struct ImageTexture {
+    texture: wgpu::Texture,
+    size: UVec2,
+}
+
+impl ImageTexture {
+    /// create an `ImageTexture` from an existing `image::Image`
+    pub fn from_image(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        image: &image::DynamicImage,
+        config: &TextureConfig,
     ) -> Self {
+        let dim = image.dimensions();
         let extent = wgpu::Extent3d {
-            width: size.x,
-            height: size.y,
+            width: dim.0,
+            height: dim.1,
             depth_or_array_layers: 1,
         };
 
+        // get pure image data as RGBA8
+        let image_data = image.to_rgba8();
+
+        // create texture
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: config.label,
+            size: extent,
+            mip_level_count: config.mip_level_count,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb, // assuming all images loaded will by sRGB
+            usage: config.usage,
+            view_formats: &[],
+        });
+
+        // queue the copying of the image data to the texture
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &image_data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * dim.0),
+                rows_per_image: Some(dim.1),
+            },
+            extent,
+        );
+
+        Self {
+            texture,
+            size: UVec2::new(dim.0, dim.1),
+        }
+    }
+
+    /// create an image texture from a file
+    pub fn from_file(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: impl AsRef<Path>,
+        config: &TextureConfig,
+    ) -> Result<Self, ImageTextureError> {
+        let file = File::open(path).map_err(|e| ImageTextureError::IoError(e))?;
+        let reader = BufReader::new(file);
+        let image =
+            image::load(reader, IMAGE_FORMAT).map_err(|e| ImageTextureError::ImageError(e))?;
+
+        Ok(Self::from_image(device, queue, &image, config))
+    }
+}
+
+impl TextureHolder for ImageTexture {
+    fn texture(&self) -> &wgpu::Texture {
+        &self.texture
+    }
+
+    fn size(&self) -> UVec3 {
+        UVec3::new(self.size.x, self.size.y, 1)
+    }
+
+    fn view_dimension(&self) -> wgpu::TextureViewDimension {
+        wgpu::TextureViewDimension::D2
+    }
+}
+
+/// helper type holding a `wgpu::Texture` that used as a texture array
+#[derive(Debug)]
+pub struct ArrayTexture {
+    texture: wgpu::Texture,
+    individual_image_size: UVec2,
+    layer_count: u32,
+}
+
+impl ArrayTexture {
+    /// create an array texture from a slice of existing `image::Image`s
+    pub fn from_images(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        images: &[image::DynamicImage],
+        config: &TextureConfig,
+    ) -> Result<Self, ArrayTextureError> {
+        // get individual image size and make sure all images are the same size
+        let dim = images
+            .first()
+            .expect("`images` should not be empty")
+            .dimensions();
+
+        for image in images {
+            if image.dimensions() != dim {
+                return Err(ArrayTextureError::DifferentlySizedImages);
+            }
+        }
+
+        let layer_count = images.len() as u32;
+
+        // create texture
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: config.label,
+            size: wgpu::Extent3d {
+                width: dim.0,
+                height: dim.1,
+                depth_or_array_layers: layer_count,
+            },
+            mip_level_count: config.mip_level_count,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb, // assuming all images loaded will by sRGB
+            usage: config.usage,
+            view_formats: &[],
+        });
+
+        for (image_index, image) in images.iter().enumerate() {
+            // get pure image data as RGBA8
+            let image_data = image.to_rgba8();
+
+            // quee the copying of the image data into texture array
+            queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: image_index as u32,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &image_data,
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * dim.0),
+                    rows_per_image: Some(dim.1),
+                },
+                wgpu::Extent3d {
+                    width: dim.0,
+                    height: dim.1,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+
+        Ok(Self {
+            texture,
+            individual_image_size: UVec2::new(dim.0, dim.1),
+            layer_count,
+        })
+    }
+
+    /// create an array texture from a slice of file paths to images
+    pub fn from_files(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        paths: &[impl AsRef<Path>],
+        image_format: image::ImageFormat,
+        config: &TextureConfig,
+    ) -> Result<Self, ArrayTextureError> {
+        // load images
+        // I decided not to use an iterator for this because I'm not sure how to properly return
+        // errors from within the closure, this could be a bit cleaner
+        let mut images = Vec::with_capacity(paths.len());
+        for path in paths {
+            let file = File::open(path).map_err(|e| ArrayTextureError::IoError(e))?;
+            let reader = BufReader::new(file);
+            images.push(
+                image::load(reader, IMAGE_FORMAT).map_err(|e| ArrayTextureError::ImageError(e))?,
+            );
+        }
+
+        Self::from_images(device, queue, &images, config)
+    }
+}
+
+impl TextureHolder for ArrayTexture {
+    fn texture(&self) -> &wgpu::Texture {
+        &self.texture
+    }
+
+    fn size(&self) -> UVec3 {
+        UVec3::new(
+            self.individual_image_size.x,
+            self.individual_image_size.y,
+            self.layer_count,
+        )
+    }
+
+    fn view_dimension(&self) -> wgpu::TextureViewDimension {
+        wgpu::TextureViewDimension::D2Array
+    }
+}
+
+/// helper type holding a `wgpu::Texture` that is used as a depth texture
+#[derive(Debug)]
+pub struct DepthTexture {
+    texture: wgpu::Texture,
+    format: wgpu::TextureFormat,
+    compare_func: wgpu::CompareFunction,
+    label: wgpu::Label<'static>,
+    size: UVec2,
+}
+
+impl DepthTexture {
+    pub fn new(
+        device: &wgpu::Device,
+        window_size: PhysicalSize<u32>,
+        format: wgpu::TextureFormat,
+        compare_func: wgpu::CompareFunction,
+        label: wgpu::Label<'static>,
+    ) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label,
-            size: extent,
+            size: wgpu::Extent3d {
+                width: window_size.width,
+                height: window_size.height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -85,228 +295,148 @@ impl Texture {
             view_formats: &[],
         });
 
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        Self {
+            texture,
+            format,
+            compare_func,
+            label,
+            size: UVec2::new(window_size.width, window_size.height),
+        }
+    }
 
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            compare: Some(wgpu::CompareFunction::LessEqual),
-            ..Default::default()
+    /// returns a new depth texture that is the same but resized
+    /// (for when the window gets resized)
+    pub fn recreate(&self, device: &wgpu::Device, new_size: PhysicalSize<u32>) -> Self {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: self.label,
+            size: wgpu::Extent3d {
+                width: new_size.width,
+                height: new_size.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
         });
 
         Self {
             texture,
-            view,
-            sampler,
-            size: UVec3::new(size.x, size.y, 1),
+            format: self.format,
+            compare_func: self.compare_func,
+            label: self.label,
+            size: UVec2::new(new_size.width, new_size.height),
         }
     }
+}
 
-    /// create a texture from a PNG image file
-    pub fn load(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        path: impl AsRef<Path>,
-        mip_level_count: u32,
-        address_mode: wgpu::AddressMode,
-        mag_filter: wgpu::FilterMode,
-        min_filter: wgpu::FilterMode,
-        mipmap_filter: wgpu::FilterMode,
-        label: wgpu::Label,
-    ) -> Result<Self, LoadTextureError> {
-        let file = File::open(path).map_err(|e| LoadTextureError::IoError(e))?;
-        let file_reader = BufReader::new(file);
-
-        let image = image::load(file_reader, ImageFormat::Png)
-            .map_err(|e| LoadTextureError::ImageError(e))?;
-        let image_rgba = image.to_rgba8();
-
-        let dimensions = image.dimensions();
-        let dimensions = UVec2::new(dimensions.0, dimensions.1);
-
-        let extent = wgpu::Extent3d {
-            width: dimensions.x,
-            height: dimensions.y,
-            depth_or_array_layers: 1,
-        };
-
-        let ret = Self::new(
-            device,
-            UVec3::new(dimensions.x, dimensions.y, 1),
-            wgpu::TextureDimension::D2,
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            mip_level_count,
-            address_mode,
-            mag_filter,
-            min_filter,
-            mipmap_filter,
-            label,
-        );
-
-        queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &ret.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &image_rgba,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * dimensions.x),
-                rows_per_image: Some(dimensions.y),
-            },
-            extent,
-        );
-
-        Ok(ret)
-    }
-
-    /// create a new array texture from all PNG images in `paths`
-    pub fn load_array(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        paths: &[impl AsRef<Path>],
-        individual_image_size: UVec2,
-        mip_level_count: u32,
-        usage: wgpu::TextureUsages,
-        address_mode: wgpu::AddressMode,
-        mag_filter: wgpu::FilterMode,
-        min_filter: wgpu::FilterMode,
-        mipmap_filter: wgpu::FilterMode,
-        label: wgpu::Label,
-    ) -> Result<Self, LoadTextureArrayError> {
-        // create texture
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d {
-                width: individual_image_size.x,
-                height: individual_image_size.y,
-                depth_or_array_layers: paths.len() as u32,
-            },
-            mip_level_count,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage,
-            label,
-            view_formats: &[],
-        });
-
-        // load images
-        for (index, path) in paths.iter().enumerate() {
-            let file = File::open(path).map_err(|e| LoadTextureArrayError::IoError(e))?;
-            let file_reader = BufReader::new(file);
-
-            let image = image::load(file_reader, ImageFormat::Png)
-                .map_err(|e| LoadTextureArrayError::ImageError(e))?;
-            let image_rgba = image.to_rgba8();
-
-            let dimensions = image.dimensions();
-            let dimensions = UVec2::new(dimensions.0, dimensions.1);
-
-            if dimensions != individual_image_size {
-                return Err(LoadTextureArrayError::ImageSizeError(
-                    path.as_ref()
-                        .to_string_lossy()
-                        .to_string(),
-                    individual_image_size,
-                    dimensions,
-                ));
-            }
-
-            queue.write_texture(
-                wgpu::ImageCopyTexture {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d {
-                        x: 0,
-                        y: 0,
-                        z: index as u32,
-                    },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &image_rgba,
-                wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(4 * dimensions.x),
-                    rows_per_image: Some(dimensions.y),
-                },
-                wgpu::Extent3d {
-                    width: individual_image_size.x,
-                    height: individual_image_size.y,
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
-
-        let view = texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(TextureViewDimension::D2Array),
-            ..Default::default()
-        });
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: address_mode,
-            address_mode_v: address_mode,
-            address_mode_w: address_mode,
-            mag_filter,
-            min_filter,
-            mipmap_filter,
-            ..Default::default()
-        });
-
-        Ok(Self {
-            texture,
-            view,
-            sampler,
-            size: UVec3::new(
-                individual_image_size.x,
-                individual_image_size.y,
-                paths.len() as u32,
-            ),
-        })
-    }
-
-    /// returns the underlying `wgpu::Texture`
-    pub fn texture(&self) -> &wgpu::Texture {
+impl TextureHolder for DepthTexture {
+    fn texture(&self) -> &wgpu::Texture {
         &self.texture
     }
 
-    /// returns the `wgpu::TextureView` for this texture
+    fn view_dimension(&self) -> wgpu::TextureViewDimension {
+        wgpu::TextureViewDimension::D2
+    }
+
+    fn size(&self) -> UVec3 {
+        UVec3::new(self.size.x, self.size.y, 1)
+    }
+}
+
+/// Wraps a `TextureHolder` with its view and sampler
+/// Note: the wrapped `TextureHolder` cannot be accessed mutably while it is stored in the
+/// `WithViewAndSampler`. This is because if the texture is recreated, the view and sampler will
+/// become invalid. Instead, you must first unwrap the value with `unwrap()`, and then rewrap it
+/// in a new `WithViewAndSampler`
+#[derive(Debug)]
+pub struct WithViewAndSampler<T>
+where
+    T: TextureHolder,
+{
+    wrapped: T,
+    view: wgpu::TextureView,
+    sampler: wgpu::Sampler,
+    sampler_descriptor: wgpu::SamplerDescriptor<'static>,
+}
+
+impl<T> WithViewAndSampler<T>
+where
+    T: TextureHolder,
+{
+    pub fn wrap(
+        device: &wgpu::Device,
+        wrapped: T,
+        sampler_descriptor: wgpu::SamplerDescriptor<'static>,
+    ) -> Self {
+        let sampler = device.create_sampler(&sampler_descriptor);
+        let view = wrapped
+            .texture()
+            .create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wrapped.view_dimension()),
+                ..Default::default()
+            });
+
+        Self {
+            wrapped,
+            view,
+            sampler,
+            sampler_descriptor,
+        }
+    }
+
+    pub fn unwrap(self) -> T {
+        self.wrapped
+    }
+
+    pub fn wrapped(&self) -> &T {
+        &self.wrapped
+    }
+
     pub fn view(&self) -> &wgpu::TextureView {
         &self.view
     }
 
-    /// returns the `wgpu::Sampler` for this texture
     pub fn sampler(&self) -> &wgpu::Sampler {
         &self.sampler
     }
 
-    /// returns the size of the texture
-    /// for texture arrays, the z component is the number of array layers
-    pub fn size(&self) -> UVec3 {
-        self.size
+    /// returns the sampler descriptor that was used to create the sampler
+    /// useful for recreating the sampler without having to remake the sampler descriptor
+    pub fn sampler_descriptor(&self) -> &wgpu::SamplerDescriptor<'static> {
+        &self.sampler_descriptor
     }
 }
 
+impl<T> Deref for WithViewAndSampler<T>
+where
+    T: TextureHolder,
+{
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.wrapped
+    }
+}
+
+/// errors returned by `ImageTexture::new`
 #[derive(Debug, thiserror::Error)]
-pub enum LoadTextureError {
+pub enum ImageTextureError {
     #[error("io error: {0}")]
     IoError(std::io::Error),
     #[error("image error: {0}")]
     ImageError(image::ImageError),
 }
 
+/// errors returned by `ArrayTexture::new`
 #[derive(Debug, thiserror::Error)]
-pub enum LoadTextureArrayError {
+pub enum ArrayTextureError {
     #[error("io error: {0}")]
     IoError(std::io::Error),
     #[error("image error: {0}")]
     ImageError(image::ImageError),
-    #[error("image {0} is wrongly sized: expected {1}, got {2}")]
-    ImageSizeError(String, UVec2, UVec2),
+    #[error("image sizes don't match!")]
+    DifferentlySizedImages,
 }
