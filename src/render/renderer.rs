@@ -12,6 +12,7 @@ use crate::{
             pipeline_builder::RenderPipelineBuilder,
         },
     },
+    tasks::Tasks,
     terrain::{event::TerrainEvent, Terrain},
     util::transform::Transform,
     DEGREE,
@@ -183,7 +184,7 @@ impl Renderer {
         }
     }
 
-    pub fn update(&mut self, cx: &RenderContext, terrain: &Terrain) {
+    pub fn update(&mut self, tasks: &mut Tasks, cx: &RenderContext, terrain: &Terrain) {
         // update global uniforms
         self.global_uniforms.camera_view_matrix = self
             .camera
@@ -198,8 +199,12 @@ impl Renderer {
         for event in terrain.events() {
             match event {
                 &TerrainEvent::ChunkLoaded(chunk_pos) => {
-                    self.chunk_render_groups
-                        .chunk_loaded(chunk_pos, terrain);
+                    self.chunk_render_groups.chunk_loaded(
+                        chunk_pos,
+                        tasks,
+                        terrain,
+                        self.camera.transform.translation,
+                    );
                 }
                 &TerrainEvent::ChunkUnloaded(chunk_pos) => {
                     self.chunk_render_groups
@@ -210,6 +215,7 @@ impl Renderer {
 
         self.chunk_render_groups.update(
             &cx.device,
+            terrain,
             RenderGroupCreateContext {
                 device: &cx.device,
                 bind_group_layout: &self.render_group_bind_group_layout,

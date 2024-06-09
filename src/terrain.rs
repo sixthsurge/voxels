@@ -5,6 +5,11 @@ use std::{
 
 use glam::Vec3;
 
+use crate::{
+    tasks::{TaskPriority, Tasks},
+    CHUNK_LOADING_PRIORITY,
+};
+
 use self::{
     chunk::{Chunk, CHUNK_SIZE_LOG2},
     event::TerrainEvent,
@@ -27,8 +32,6 @@ pub struct Terrain {
     events: Vec<TerrainEvent>,
     /// List of positions of chunks that are currently loading
     loading_chunk_positions: HashSet<ChunkPos>,
-    /// Thread pool for loading chunks
-    chunk_loading_threads: rayon::ThreadPool,
     /// Sender for loaded chunks
     loaded_chunk_tx: Sender<Chunk>,
     /// Receiver for loaded chunks
@@ -36,22 +39,13 @@ pub struct Terrain {
 }
 
 impl Terrain {
-    /// Number of threads to use for chunk loading
-    pub const CHUNK_LOADING_THREAD_COUNT: usize = 2;
-
     pub fn new() -> Self {
-        let chunk_loading_threads = rayon::ThreadPoolBuilder::new()
-            .num_threads(Self::CHUNK_LOADING_THREAD_COUNT)
-            .build()
-            .expect("creating thread pool should not fail");
-
         let (loaded_chunk_tx, loaded_chunk_rx) = mpsc::channel();
 
         Self {
             loaded_chunks: LoadedChunks::new(),
             events: Vec::new(),
             loading_chunk_positions: HashSet::new(),
-            chunk_loading_threads,
             loaded_chunk_tx,
             loaded_chunk_rx,
         }
@@ -59,15 +53,20 @@ impl Terrain {
 
     /// Called each frame to update the Terrain
     /// * `world_anchors` - points around which chunks are loaded and unloaded
-    pub fn update(&mut self, anchors: &[Anchor]) {
+    pub fn update(&mut self, tasks: &mut Tasks, anchors: &[Anchor]) {
         self.check_for_newly_loaded_chunks();
-        self.load_chunks_in_range(anchors);
+        self.load_chunks_in_range(tasks, anchors);
         self.unload_chunks_not_in_range(anchors);
     }
 
     /// Returns the chunk at the given position, or none if it is not yet loaded
     pub fn get_chunk(&self, pos: ChunkPos) -> Option<&Chunk> {
         self.loaded_chunks.get_chunk(pos)
+    }
+
+    /// True if the chunk with the given position is currently loaded
+    pub fn has_chunk(&self, pos: ChunkPos) -> bool {
+        self.loaded_chunks.has_chunk(pos)
     }
 
     /// Returns an iterator over all events that have occurred since the last call to
@@ -81,8 +80,8 @@ impl Terrain {
         self.events.clear();
     }
 
-    /// Schedule a thread to begin loading a chunk
-    fn load_chunk(&mut self, chunk_pos: ChunkPos) {
+    /// Spawn a task to begin loading a chunk
+    fn load_chunk(&mut self, tasks: &mut Tasks, chunk_pos: ChunkPos, anchor_chunk: ChunkPos) {
         debug_assert!(!self.loaded_chunks.has_chunk(chunk_pos));
         debug_assert!(!self
             .loading_chunk_positions
@@ -91,12 +90,20 @@ impl Terrain {
         self.loading_chunk_positions
             .insert(chunk_pos);
 
-        // make copies for the worker thread
-        let chunk_pos = chunk_pos;
+        // assign a higher priority to chunks closer to the anchor
+        let priority_within_class = (chunk_pos - anchor_chunk)
+            .as_ivec3()
+            .length_squared();
+
+        // clone sender for the worker thread
         let loaded_chunk_tx = self.loaded_chunk_tx.clone();
 
-        self.chunk_loading_threads
-            .spawn(move || {
+        tasks.submit(
+            TaskPriority {
+                class_priority: CHUNK_LOADING_PRIORITY,
+                priority_within_class,
+            },
+            move || {
                 let chunk = temporary_generation::generate_chunk(chunk_pos);
                 if let Err(e) = loaded_chunk_tx.send(chunk) {
                     log::trace!(
@@ -104,7 +111,8 @@ impl Terrain {
                         e
                     );
                 }
-            });
+            },
+        );
     }
 
     /// Called once a chunk has finished loading and is ready to be added to the world
@@ -131,7 +139,7 @@ impl Terrain {
     }
 
     /// Start loading any chunks in range of an anchor that aren't already loaded or loading
-    fn load_chunks_in_range(&mut self, anchors: &[Anchor]) {
+    fn load_chunks_in_range(&mut self, tasks: &mut Tasks, anchors: &[Anchor]) {
         for anchor in anchors {
             for chunk_pos in anchor.iter_chunk_positions_in_range() {
                 let chunk_loaded = self.loaded_chunks.has_chunk(chunk_pos);
@@ -140,7 +148,7 @@ impl Terrain {
                     .contains(&chunk_pos);
 
                 if !chunk_loaded && !chunk_loading {
-                    self.load_chunk(chunk_pos);
+                    self.load_chunk(tasks, chunk_pos, anchor.get_center_chunk());
                 }
             }
         }

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use fly_camera::FlyCamera;
 use input::Input;
 use render::{context::RenderContext, renderer::Renderer};
+use tasks::Tasks;
 use terrain::{Anchor, Terrain};
 use time::{TargetFrameRate, Time};
 use winit::{
@@ -18,11 +19,24 @@ mod block;
 mod fly_camera;
 mod input;
 mod render;
+mod tasks;
 mod terrain;
 mod time;
 mod util;
 
 const WINDOW_TITLE: &'static str = "\"minecraft\"";
+
+/// Number of threads to use for executing tasks
+const TASKS_WORKER_THREAD_COUNT: usize = 8;
+
+/// Priority of chunk loading tasks (lower is higher)
+const CHUNK_LOADING_PRIORITY: i32 = 0;
+
+/// Priority of chunk mesh generation tasks (lower is higher)
+const CHUNK_MESH_GENERATION_PRIORITY: i32 = 1;
+
+/// Priority of chunk mesh generation tasks when a fine mesh already exists (lower is higher)
+const CHUNK_MESH_OPTIMIZATION_PRIORITY: i32 = 2;
 
 /// Size of one degree in radians
 const DEGREE: f32 = 180.0 / std::f32::consts::PI;
@@ -32,6 +46,7 @@ struct State {
     render_cx: RenderContext,
     time: Time,
     input: Input,
+    tasks: Tasks,
     terrain: Terrain,
     renderer: Renderer,
     fly_camera: FlyCamera,
@@ -45,6 +60,7 @@ impl State {
         let render_cx = RenderContext::new(window.clone());
         let input = Input::new();
         let time = Time::new(TargetFrameRate::UnlimitedOrVsync);
+        let tasks = Tasks::new(TASKS_WORKER_THREAD_COUNT);
         let terrain = Terrain::new();
         let renderer = Renderer::new(&render_cx);
         let fly_camera = FlyCamera::default();
@@ -52,8 +68,9 @@ impl State {
         Self {
             window,
             render_cx,
-            time,
             input,
+            time,
+            tasks,
             terrain,
             renderer,
             fly_camera,
@@ -90,13 +107,16 @@ impl State {
         }
         self.renderer.camera_mut().transform = self.fly_camera.get_transform();
 
-        self.terrain.update(&[Anchor {
-            position: self.fly_camera.position,
-            load_radius: 5,
-        }]);
+        self.terrain.update(
+            &mut self.tasks,
+            &[Anchor {
+                position: self.fly_camera.position,
+                load_radius: 5,
+            }],
+        );
 
         self.renderer
-            .update(&self.render_cx, &self.terrain);
+            .update(&mut self.tasks, &self.render_cx, &self.terrain);
         self.terrain.clear_events();
 
         self.input.reset();

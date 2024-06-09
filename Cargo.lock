@@ -2354,7 +2354,6 @@ dependencies = [
  "itertools 0.13.0",
  "log",
  "pollster",
- "rayon",
  "thiserror",
  "wgpu",
  "winit",
