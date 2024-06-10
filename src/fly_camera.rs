@@ -3,7 +3,7 @@ use winit::keyboard::KeyCode;
 
 use crate::{input::Input, time::Time, util::transform::Transform};
 
-pub const DEFAULT_SPEED: f32 = 5.0;
+pub const DEFAULT_SPEED: f32 = 10.0;
 pub const DEFAULT_SENSITIVITY: f32 = 0.01;
 
 #[derive(Clone, Debug)]

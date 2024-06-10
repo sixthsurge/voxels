@@ -3,15 +3,11 @@ name = "voxels"
 version = "0.1.0"
 edition = "2021"
 
+[profile.dev]
+
 # enable full optimizations for dependencies in dev mode
 [profile.dev.package."*"]
 opt-level = 3
-
-# increase optimizations in release mode
-[profile.release]
-opt-level = 3
-codegen-units = 1
-lto = "fat"
 
 [dependencies]
 array-init = "2.1"
@@ -24,6 +20,7 @@ image = "0.25"
 itertools = "0.13"
 log = "0.4"
 pollster = "0.3"
+rustc-hash = "1.1.0"
 thiserror = "1.0"
 wgpu = "0.20"
 winit = "0.30"

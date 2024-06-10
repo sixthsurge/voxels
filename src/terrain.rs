@@ -1,9 +1,8 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::mpsc::{self, Receiver, Sender},
-};
+use std::sync::mpsc::{self, Receiver, Sender};
 
-use glam::Vec3;
+use glam::{IVec3, Vec3};
+use itertools::Itertools;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     tasks::{TaskPriority, Tasks},
@@ -22,16 +21,18 @@ pub mod position_types;
 
 mod temporary_generation;
 
-/// Manages the voxel terrain, responsible for loading/unloading chunks and scheduling terrain
-/// generation
+/// Manages the voxel terrain, responsible for loading/unloading chunks and submitting terrain
+/// generation tasks
 #[derive(Debug)]
 pub struct Terrain {
     /// Currently loaded chunks
     loaded_chunks: LoadedChunks,
     /// Outstanding terrain events
     events: Vec<TerrainEvent>,
-    /// List of positions of chunks that are currently loading
-    loading_chunk_positions: HashSet<ChunkPos>,
+    /// Anchors that the terrain is loaded around
+    anchors: Vec<Anchor>,
+    /// Positions of chunks that are currently loading
+    loading_chunk_positions: FxHashSet<ChunkPos>,
     /// Sender for loaded chunks
     loaded_chunk_tx: Sender<Chunk>,
     /// Receiver for loaded chunks
@@ -45,7 +46,8 @@ impl Terrain {
         Self {
             loaded_chunks: LoadedChunks::new(),
             events: Vec::new(),
-            loading_chunk_positions: HashSet::new(),
+            anchors: Vec::new(),
+            loading_chunk_positions: FxHashSet::default(),
             loaded_chunk_tx,
             loaded_chunk_rx,
         }
@@ -53,10 +55,15 @@ impl Terrain {
 
     /// Called each frame to update the Terrain
     /// * `world_anchors` - points around which chunks are loaded and unloaded
-    pub fn update(&mut self, tasks: &mut Tasks, anchors: &[Anchor]) {
+    pub fn update(&mut self, tasks: &mut Tasks) {
         self.check_for_newly_loaded_chunks();
-        self.load_chunks_in_range(tasks, anchors);
-        self.unload_chunks_not_in_range(anchors);
+        self.check_chunks_to_load(tasks);
+        self.check_chunks_to_unload();
+
+        // update anchors
+        for anchor in &mut self.anchors {
+            anchor.update();
+        }
     }
 
     /// Returns the chunk at the given position, or none if it is not yet loaded
@@ -78,6 +85,16 @@ impl Terrain {
     /// Clear the list of outstanding events
     pub fn clear_events(&mut self) {
         self.events.clear();
+    }
+
+    /// The anchors around which chunks are loaded
+    pub fn anchors(&self) -> &[Anchor] {
+        &self.anchors
+    }
+
+    /// Mutable access to the vec of anchors around which chunks are loaded
+    pub fn anchors_mut(&mut self) -> &mut Vec<Anchor> {
+        &mut self.anchors
     }
 
     /// Spawn a task to begin loading a chunk
@@ -117,11 +134,20 @@ impl Terrain {
 
     /// Called once a chunk has finished loading and is ready to be added to the world
     fn finished_loading_chunk(&mut self, chunk: Chunk) {
-        self.events
-            .push(TerrainEvent::ChunkLoaded(chunk.pos()));
-        self.loading_chunk_positions
-            .remove(&chunk.pos());
-        self.loaded_chunks.add(chunk);
+        // make sure this chunk is still loaded by an anchor
+        // this is necessary because the anchor may have moved away from the chunk by the time it
+        // finished loading
+        if self
+            .anchors
+            .iter()
+            .any(|anchor| anchor.is_in_range(chunk.pos()))
+        {
+            self.events
+                .push(TerrainEvent::ChunkLoaded(chunk.pos()));
+            self.loading_chunk_positions
+                .remove(&chunk.pos());
+            self.loaded_chunks.add(chunk);
+        }
     }
 
     /// Unload the chunk with the given position
@@ -139,91 +165,276 @@ impl Terrain {
     }
 
     /// Start loading any chunks in range of an anchor that aren't already loaded or loading
-    fn load_chunks_in_range(&mut self, tasks: &mut Tasks, anchors: &[Anchor]) {
-        for anchor in anchors {
-            for chunk_pos in anchor.iter_chunk_positions_in_range() {
-                let chunk_loaded = self.loaded_chunks.has_chunk(chunk_pos);
-                let chunk_loading = self
-                    .loading_chunk_positions
-                    .contains(&chunk_pos);
-
-                if !chunk_loaded && !chunk_loading {
-                    self.load_chunk(tasks, chunk_pos, anchor.get_center_chunk());
+    fn check_chunks_to_load(&mut self, tasks: &mut Tasks) {
+        // select positions of chunks that need to be loaded
+        let mut chunks_to_load = Vec::new();
+        for anchor in &self.anchors {
+            // originally I iterated over all the chunks in the range, but this ate a huge chunk of
+            // the frame time, especially in debug builds
+            // instead I only iterate over all the chunks when the anchor is new (has never loaded
+            // any chunks before), and create an iterator that only covers the new chunks when
+            // an anchor moves
+            if anchor.is_new() {
+                for chunk_pos in anchor.iter_all_chunks_in_range() {
+                    chunks_to_load.push((chunk_pos, anchor.get_center_chunk()));
                 }
+            } else if anchor.has_moved_between_chunks() {
+                for chunk_pos in anchor.iter_new_chunks_in_range() {
+                    chunks_to_load.push((chunk_pos, anchor.get_center_chunk()));
+                }
+            }
+        }
+
+        for (chunk_pos, anchor_chunk) in chunks_to_load {
+            let chunk_loaded = self.loaded_chunks.has_chunk(chunk_pos);
+            let chunk_loading = self
+                .loading_chunk_positions
+                .contains(&chunk_pos);
+
+            if !chunk_loaded && !chunk_loading {
+                self.load_chunk(tasks, chunk_pos, anchor_chunk);
             }
         }
     }
 
     /// Unload any chunks not in range of an anchor
-    fn unload_chunks_not_in_range(&mut self, anchors: &[Anchor]) {
-        // must be cloned to avoid iterating and mutating at the same time
-        let positions: Vec<_> = self.loaded_chunks.positions().into();
+    fn check_chunks_to_unload(&mut self) {
+        let mut chunks_to_unload = Vec::new();
 
-        // will store whether the chunk with the matching index in `loaded_chunks.positions()`
-        // is maintain.ed by any anchor
-        let mut maintained: Vec<bool> = (0..positions.len())
-            .map(|_| false)
-            .collect();
+        // for each anchor, if it has moved get the list of chunks that are no longer loaded by
+        // that anchor, and check if each chunk in that list is loaded by a different anchor
+        // - if it isn't, it should be unloaded
+        for anchor in &self.anchors {
+            // skip anchors that are new or have not moved between chunks
+            if anchor.is_new() || !anchor.has_moved_between_chunks() {
+                continue;
+            }
 
-        for (anchor, (chunk_index, chunk_pos)) in itertools::iproduct!(
-            anchors,
-            self.loaded_chunks
-                .positions()
-                .iter()
-                .enumerate()
-        ) {
-            let center = anchor.get_center_chunk();
-            let diff = (*chunk_pos - center).as_ivec3();
+            // get the list of chunks that are no longer loaded by this anchor
+            let chunks_to_check = anchor
+                .iter_chunks_no_longer_in_range()
+                .collect_vec();
 
-            maintained[chunk_index] |=
-                diff.length_squared() <= anchor.load_radius * anchor.load_radius;
+            // will store whether the chunk with the matching index in `chunks_to_check`
+            // is maintained by any anchor
+            let mut maintained = vec![false; chunks_to_check.len()];
+
+            // for each chunk to check and anchor, check if the chunk should be loaded by that
+            // anchor
+            for (anchor, (chunk_index, chunk_pos)) in
+                itertools::iproduct!(&self.anchors, chunks_to_check.iter().enumerate())
+            {
+                maintained[chunk_index] |= anchor.is_in_range(*chunk_pos);
+            }
+
+            // mark any chunks that aren't maintained by another anchor for unloading
+            chunks_to_unload.extend(
+                chunks_to_check
+                    .iter()
+                    .zip(maintained.iter().copied())
+                    .filter(|(_, maintained)| !maintained)
+                    .map(|(chunk_pos, _)| chunk_pos),
+            )
         }
 
-        for (chunk_pos, maintained) in positions.iter().zip(maintained.iter()) {
-            if !maintained {
-                self.unload_chunk(*chunk_pos);
+        for chunk_pos in chunks_to_unload {
+            if self.has_chunk(chunk_pos) {
+                self.unload_chunk(chunk_pos);
             }
         }
     }
 }
 
-/// Points that the world is loaded around
+/// Points around which the world is loaded
+#[derive(Clone, Debug)]
 pub struct Anchor {
-    pub position: Vec3,
-    pub load_radius: i32,
+    /// Position of the anchor in the world
+    pos: Vec3,
+    /// Whether `update` has ever been called on this `Anchor`
+    is_new: bool,
+    /// Position of the chunk containing this anchor when `update` was last called
+    last_center_chunk: Option<ChunkPos>,
+    /// Number of chunks to load on each axis in both directions
+    load_distance: IVec3,
 }
 
 impl Anchor {
-    /// Returns the position of the chunk that the anchor resides in
-    pub fn get_center_chunk(&self) -> ChunkPos {
-        ChunkPos::from(self.position.as_ivec3() >> (CHUNK_SIZE_LOG2 as i32))
+    pub fn new(pos: Vec3, load_distance: IVec3) -> Self {
+        Self {
+            pos,
+            is_new: true,
+            last_center_chunk: None,
+            load_distance,
+        }
     }
 
-    /// Returns an iterator over all chunk positions that are in range of the anchor
-    #[inline]
-    pub fn iter_chunk_positions_in_range<'a>(&'a self) -> impl Iterator<Item = ChunkPos> + 'a {
-        let load_range = -self.load_radius..=self.load_radius;
-        let center_chunk = self.get_center_chunk();
+    /// Update the anchor's position
+    pub fn set_pos(&mut self, new_pos: Vec3) {
+        self.pos = new_pos;
+    }
 
-        itertools::iproduct!(load_range.clone(), load_range.clone(), load_range.clone())
-            .filter(|(x, y, z)| x * x + y * y + z * z <= self.load_radius * self.load_radius)
-            .map(move |(x, y, z)| ChunkPos::new(x, y, z) + center_chunk)
+    /// Called after loading chunks to inform the anchor that it has no chunks to load
+    fn update(&mut self) {
+        self.is_new = false;
+        self.last_center_chunk = Some(self.get_center_chunk());
+    }
+
+    /// True if `update` has never been called on this `Anchor`
+    fn is_new(&self) -> bool {
+        self.is_new
+    }
+
+    /// True if this anchor has moved between chunks since the last time `update` was called
+    fn has_moved_between_chunks(&self) -> bool {
+        if let Some(last_chunk_pos) = self.last_center_chunk {
+            self.get_center_chunk() != last_chunk_pos
+        } else {
+            false
+        }
+    }
+
+    /// Returns the position of the chunk that the anchor resides in
+    fn get_center_chunk(&self) -> ChunkPos {
+        ChunkPos::from(self.pos.as_ivec3() >> (CHUNK_SIZE_LOG2 as i32))
+    }
+
+    /// True if this chunk would be loaded by the anchor
+    fn is_in_range(&self, chunk_pos: ChunkPos) -> bool {
+        let center_chunk = self.get_center_chunk();
+        let min_pos = center_chunk.as_ivec3() - self.load_distance;
+        let max_pos = center_chunk.as_ivec3() + self.load_distance;
+        chunk_pos
+            .as_ivec3()
+            .cmpge(min_pos)
+            .all()
+            && chunk_pos
+                .as_ivec3()
+                .cmple(max_pos)
+                .all()
+    }
+
+    /// Returns an iterator over the chunk positions that are in range of the anchor
+    fn iter_all_chunks_in_range<'a>(&'a self) -> impl Iterator<Item = ChunkPos> + 'a {
+        let center_chunk = self.get_center_chunk();
+        let min_pos = center_chunk.as_ivec3() - self.load_distance;
+        let max_pos = center_chunk.as_ivec3() + self.load_distance;
+
+        itertools::iproduct!(
+            min_pos.x..=max_pos.x,
+            min_pos.y..=max_pos.y,
+            min_pos.z..=max_pos.z
+        )
+        .map(|(x, y, z)| ChunkPos::new(x, y, z))
+    }
+
+    /// Returns an iterator over the chunk positions that are in range of the anchor now,
+    /// but weren't in range of the anchor when `update` was last called
+    /// This takes advantage of the fact that the fact that chunks are loaded in a square rather
+    /// than a circular shape
+    /// Note: this may return the same position twice
+    fn iter_new_chunks_in_range<'a>(&'a self) -> impl Iterator<Item = ChunkPos> + 'a {
+        let center_chunk = self.get_center_chunk();
+        let last_center_chunk = self.last_center_chunk.expect(
+            "`last_center_chunk` should not be `None` when `iter_new_chunks_in_range` is called",
+        );
+
+        // calculate 3 AABBs for the chunks that have just entered the loading range
+        let new_center = center_chunk.as_ivec3();
+        let old_center = last_center_chunk.as_ivec3();
+        let diff_signum = (new_center - old_center).signum();
+        let min_corner = new_center - self.load_distance;
+        let max_corner = new_center + self.load_distance;
+        let new_frontier = new_center + self.load_distance * diff_signum;
+        let old_frontier = old_center + self.load_distance * diff_signum;
+        let min_frontier = IVec3::min(new_frontier, old_frontier);
+        let max_frontier = IVec3::max(new_frontier, old_frontier);
+
+        // chunks loaded in the X direction
+        let iter_0 = itertools::iproduct!(
+            min_frontier.x..=max_frontier.x - (diff_signum.x == 0) as i32,
+            min_corner.y..=max_corner.y,
+            min_corner.z..=max_corner.z,
+        );
+
+        // chunks loaded in the Y direction
+        let iter_1 = itertools::iproduct!(
+            min_corner.x..=max_corner.x,
+            min_frontier.y..=max_frontier.y - (diff_signum.y == 0) as i32,
+            min_corner.z..=max_corner.z,
+        );
+
+        // chunks loaded in the Z direction
+        let iter_2 = itertools::iproduct!(
+            min_corner.x..=max_corner.x,
+            min_corner.y..=max_corner.y,
+            min_frontier.z..=max_frontier.z - (diff_signum.z == 0) as i32,
+        );
+
+        iter_0
+            .chain(iter_1)
+            .chain(iter_2)
+            .map(|(x, y, z)| ChunkPos::new(x, y, z))
+    }
+
+    /// Returns an iterator over all the chunk positions that were in range of the anchor last time
+    /// `update` was called, but aren't in range now
+    fn iter_chunks_no_longer_in_range<'a>(&'a self) -> impl Iterator<Item = ChunkPos> + 'a {
+        let center_chunk = self.get_center_chunk();
+        let last_center_chunk = self.last_center_chunk.expect(
+            "`last_center_chunk` should not be `None` when `iter_chunks_no_longer_in_range` is called",
+        );
+
+        // calculate 3 AABBs for the chunks that have just exited the loading range
+        let new_center = center_chunk.as_ivec3();
+        let old_center = last_center_chunk.as_ivec3();
+        let diff_signum = (new_center - old_center).signum();
+        let min_corner = old_center - self.load_distance;
+        let max_corner = old_center + self.load_distance;
+        let new_frontier = new_center - (self.load_distance + 1) * diff_signum;
+        let old_frontier = old_center - (self.load_distance + 1) * diff_signum;
+        let min_frontier = IVec3::min(new_frontier, old_frontier);
+        let max_frontier = IVec3::max(new_frontier, old_frontier);
+
+        // chunks left behind in the X direction
+        let iter_0 = itertools::iproduct!(
+            min_frontier.x..=max_frontier.x - (diff_signum.x == 0) as i32,
+            min_corner.y..=max_corner.y,
+            min_corner.z..=max_corner.z,
+        );
+
+        // chunks left behind in the Y direction
+        let iter_1 = itertools::iproduct!(
+            min_corner.x..=max_corner.x,
+            min_frontier.y..=max_frontier.y - (diff_signum.y == 0) as i32,
+            min_corner.z..=max_corner.z,
+        );
+
+        // chunks left behind in the Z direction
+        let iter_2 = itertools::iproduct!(
+            min_corner.x..=max_corner.x,
+            min_corner.y..=max_corner.y,
+            min_frontier.z..=max_frontier.z - (diff_signum.z == 0) as i32,
+        );
+
+        iter_0
+            .chain(iter_1)
+            .chain(iter_2)
+            .map(|(x, y, z)| ChunkPos::new(x, y, z))
     }
 }
 
-/// data structure for storing loaded chunks
+/// Data structure for storing loaded chunks
 /// combines a HashMap for O(1) access with a Vec of keys for faster iteration
-/// (iterating `std::collections::HashMap` currently has to visit empty buckets)
 #[derive(Debug)]
 struct LoadedChunks {
-    chunks: HashMap<ChunkPos, Chunk>,
+    chunks: FxHashMap<ChunkPos, Chunk>,
     loaded_chunk_positions: Vec<ChunkPos>,
 }
 
 impl LoadedChunks {
     fn new() -> Self {
         Self {
-            chunks: HashMap::new(),
+            chunks: FxHashMap::default(),
             loaded_chunk_positions: Vec::new(),
         }
     }
@@ -258,9 +469,5 @@ impl LoadedChunks {
 
     fn has_chunk(&self, pos: ChunkPos) -> bool {
         self.chunks.contains_key(&pos)
-    }
-
-    fn positions(&self) -> &[ChunkPos] {
-        &self.loaded_chunk_positions
     }
 }

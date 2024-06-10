@@ -1,6 +1,5 @@
-use std::collections::HashSet;
-
 use glam::{DVec2, Vec2};
+use rustc_hash::FxHashSet;
 use winit::{
     event::{DeviceEvent, ElementState, KeyEvent, MouseButton, WindowEvent},
     keyboard::{KeyCode, PhysicalKey},
@@ -8,20 +7,20 @@ use winit::{
 
 #[derive(Debug)]
 pub struct Input {
-    keys_held: HashSet<KeyCode>,
-    keys_held_last_frame: HashSet<KeyCode>,
-    mouse_buttons_held: HashSet<MouseButton>,
-    mouse_buttons_held_last_frame: HashSet<MouseButton>,
+    keys_held: FxHashSet<KeyCode>,
+    keys_held_last_frame: FxHashSet<KeyCode>,
+    mouse_buttons_held: FxHashSet<MouseButton>,
+    mouse_buttons_held_last_frame: FxHashSet<MouseButton>,
     mouse_delta: DVec2,
 }
 
 impl Input {
     pub fn new() -> Self {
         Self {
-            keys_held: HashSet::new(),
-            keys_held_last_frame: HashSet::new(),
-            mouse_buttons_held: HashSet::new(),
-            mouse_buttons_held_last_frame: HashSet::new(),
+            keys_held: FxHashSet::default(),
+            keys_held_last_frame: FxHashSet::default(),
+            mouse_buttons_held: FxHashSet::default(),
+            mouse_buttons_held_last_frame: FxHashSet::default(),
             mouse_delta: DVec2::ZERO,
         }
     }

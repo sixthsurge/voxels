@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use fly_camera::FlyCamera;
+use glam::IVec3;
 use input::Input;
 use render::{context::RenderContext, renderer::Renderer};
 use tasks::Tasks;
@@ -27,13 +28,13 @@ mod util;
 const WINDOW_TITLE: &'static str = "\"minecraft\"";
 
 /// Number of threads to use for executing tasks
-const TASKS_WORKER_THREAD_COUNT: usize = 8;
+const TASKS_WORKER_THREAD_COUNT: usize = 4;
 
 /// Priority of chunk loading tasks (lower is higher)
-const CHUNK_LOADING_PRIORITY: i32 = 0;
+const CHUNK_LOADING_PRIORITY: i32 = 1;
 
 /// Priority of chunk mesh generation tasks (lower is higher)
-const CHUNK_MESH_GENERATION_PRIORITY: i32 = 1;
+const CHUNK_MESH_GENERATION_PRIORITY: i32 = 0;
 
 /// Priority of chunk mesh generation tasks when a fine mesh already exists (lower is higher)
 const CHUNK_MESH_OPTIMIZATION_PRIORITY: i32 = 2;
@@ -61,9 +62,13 @@ impl State {
         let input = Input::new();
         let time = Time::new(TargetFrameRate::UnlimitedOrVsync);
         let tasks = Tasks::new(TASKS_WORKER_THREAD_COUNT);
-        let terrain = Terrain::new();
+        let mut terrain = Terrain::new();
         let renderer = Renderer::new(&render_cx);
         let fly_camera = FlyCamera::default();
+
+        terrain
+            .anchors_mut()
+            .push(Anchor::new(fly_camera.position, IVec3::new(20, 10, 20)));
 
         Self {
             window,
@@ -106,14 +111,9 @@ impl State {
                 .update(&self.input, &self.time);
         }
         self.renderer.camera_mut().transform = self.fly_camera.get_transform();
+        self.terrain.anchors_mut()[0].set_pos(self.fly_camera.position);
 
-        self.terrain.update(
-            &mut self.tasks,
-            &[Anchor {
-                position: self.fly_camera.position,
-                load_radius: 5,
-            }],
-        );
+        self.terrain.update(&mut self.tasks);
 
         self.renderer
             .update(&mut self.tasks, &self.render_cx, &self.terrain);

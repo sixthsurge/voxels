@@ -144,12 +144,12 @@ impl Tasks {
                 .expect("`Tasks` mutex poisoned");
 
             // wait for a pending task
-            while lock.pending_tasks.is_empty() && !lock.terminate {
-                lock = shared
-                    .pending_task_cond
-                    .wait(lock)
-                    .expect("`Tasks` mutex poisoned");
-            }
+            lock = shared
+                .pending_task_cond
+                .wait_while(lock, |info| {
+                    info.pending_tasks.is_empty() && !info.terminate
+                })
+                .expect("`Tasks` mutex poisoned");
 
             // check if the thread should terminate
             if lock.terminate {
