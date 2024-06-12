@@ -3,7 +3,7 @@ use std::sync::Arc;
 use fly_camera::FlyCamera;
 use glam::IVec3;
 use input::Input;
-use render::{context::RenderContext, renderer::Renderer};
+use render::{context::RenderContext, RenderEngine};
 use tasks::Tasks;
 use terrain::{Anchor, Terrain};
 use time::{TargetFrameRate, Time};
@@ -13,6 +13,7 @@ use winit::{
     error::EventLoopError,
     event::{DeviceEvent, DeviceId, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::KeyCode,
     window::{Window, WindowId},
 };
 
@@ -27,43 +28,40 @@ mod util;
 
 const WINDOW_TITLE: &'static str = "\"minecraft\"";
 
-/// Number of threads to use for executing tasks
+/// Number of threads to use for task processing
 const TASKS_WORKER_THREAD_COUNT: usize = 4;
 
-/// Priority of chunk loading tasks (lower is higher)
-const CHUNK_LOADING_PRIORITY: i32 = 1;
-
-/// Priority of chunk mesh generation tasks (lower is higher)
+/// Priority value for chunk mesh generation tasks
 const CHUNK_MESH_GENERATION_PRIORITY: i32 = 0;
 
-/// Priority of chunk mesh generation tasks when a fine mesh already exists (lower is higher)
-const CHUNK_MESH_OPTIMIZATION_PRIORITY: i32 = 2;
+/// Priority value for chunk loading tasks
+const CHUNK_LOADING_PRIORITY: i32 = 1;
 
-/// Size of one degree in radians
-const DEGREE: f32 = 180.0 / std::f32::consts::PI;
+/// Priority value for chunk mesh generation tasks when an up-to-date mesh already exists
+const CHUNK_MESH_OPTIMIZATION_PRIORITY: i32 = 2;
 
 struct State {
     window: Arc<Window>,
-    render_cx: RenderContext,
+    render_context: RenderContext,
     time: Time,
     input: Input,
     tasks: Tasks,
+    render_engine: RenderEngine,
     terrain: Terrain,
-    renderer: Renderer,
     fly_camera: FlyCamera,
     fly_camera_active: bool,
     close_requested: bool,
+    use_cave_culling: bool,
 }
 
 impl State {
     fn new(window: Arc<Window>) -> Self {
-        let window_size = window.inner_size();
-        let render_cx = RenderContext::new(window.clone());
+        let render_context = RenderContext::new(window.clone());
         let input = Input::new();
         let time = Time::new(TargetFrameRate::UnlimitedOrVsync);
         let tasks = Tasks::new(TASKS_WORKER_THREAD_COUNT);
+        let render_engine = RenderEngine::new(&render_context);
         let mut terrain = Terrain::new();
-        let renderer = Renderer::new(&render_cx);
         let fly_camera = FlyCamera::default();
 
         terrain
@@ -72,15 +70,16 @@ impl State {
 
         Self {
             window,
-            render_cx,
+            render_context,
             input,
             time,
             tasks,
             terrain,
-            renderer,
+            render_engine,
             fly_camera,
             fly_camera_active: true,
             close_requested: false,
+            use_cave_culling: true,
         }
     }
 
@@ -93,8 +92,9 @@ impl State {
     }
 
     fn resized(&mut self, new_size: PhysicalSize<u32>) {
-        self.render_cx.resized(new_size);
-        self.renderer.resized(&self.render_cx);
+        self.render_context.resized(new_size);
+        self.render_engine
+            .resized(&self.render_context);
     }
 
     fn update(&mut self) {
@@ -110,30 +110,44 @@ impl State {
             self.fly_camera
                 .update(&self.input, &self.time);
         }
-        self.renderer.camera_mut().transform = self.fly_camera.get_transform();
+        self.render_engine
+            .camera_mut()
+            .transform = self.fly_camera.get_transform();
         self.terrain.anchors_mut()[0].set_pos(self.fly_camera.position);
 
+        self.terrain.clear_events();
         self.terrain.update(&mut self.tasks);
 
-        self.renderer
-            .update(&mut self.tasks, &self.render_cx, &self.terrain);
-        self.terrain.clear_events();
+        if self
+            .input
+            .is_key_just_pressed(KeyCode::KeyC)
+        {
+            self.use_cave_culling = !self.use_cave_culling;
+        }
 
         self.input.reset();
     }
 
     fn render(&mut self) {
-        let Some(surface_texture) = self.render_cx.get_surface_texture() else {
+        let Some(surface_texture) = self
+            .render_context
+            .get_surface_texture()
+        else {
             log::warn!("couldn't acquire surface texture");
             return;
         };
 
-        let surface_texture_view = surface_texture
+        let output_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.renderer
-            .render(&self.render_cx, &surface_texture_view);
+        self.render_engine.render(
+            &self.render_context,
+            &output_view,
+            &mut self.tasks,
+            &self.terrain,
+            self.use_cave_culling,
+        );
 
         surface_texture.present();
     }

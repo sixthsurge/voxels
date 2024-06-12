@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use crate::{
-    block::{model::BlockFaceIndex, BLOCKS},
-    terrain::position_types::LocalBlockPos,
-};
+use crate::{block::BLOCKS, terrain::position_types::LocalBlockPos, util::face_index::FaceIndex};
 
 use super::{Chunk, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32};
 
@@ -29,7 +26,7 @@ impl ChunkSide {
                 let block = &BLOCKS[block_id.0 as usize];
                 faces[index] = block
                     .model
-                    .face(BlockFaceIndex::POS_X)
+                    .face(FaceIndex::POS_X)
                     .is_none();
                 index += 1;
             }
@@ -51,7 +48,7 @@ impl ChunkSide {
                 let block = &BLOCKS[block_id.0 as usize];
                 faces[index] = block
                     .model
-                    .face(BlockFaceIndex::POS_Y)
+                    .face(FaceIndex::POS_Y)
                     .is_none();
                 index += 1;
             }
@@ -73,7 +70,7 @@ impl ChunkSide {
                 let block = &BLOCKS[block_id.0 as usize];
                 faces[index] = block
                     .model
-                    .face(BlockFaceIndex::POS_Z)
+                    .face(FaceIndex::POS_Z)
                     .is_none();
                 index += 1;
             }
@@ -95,7 +92,7 @@ impl ChunkSide {
                 let block = &BLOCKS[block_id.0 as usize];
                 faces[index] = block
                     .model
-                    .face(BlockFaceIndex::NEG_X)
+                    .face(FaceIndex::NEG_X)
                     .is_none();
                 index += 1;
             }
@@ -117,7 +114,7 @@ impl ChunkSide {
                 let block = &BLOCKS[block_id.0 as usize];
                 faces[index] = block
                     .model
-                    .face(BlockFaceIndex::NEG_Y)
+                    .face(FaceIndex::NEG_Y)
                     .is_none();
                 index += 1;
             }
@@ -139,7 +136,7 @@ impl ChunkSide {
                 let block = &BLOCKS[block_id.0 as usize];
                 faces[index] = block
                     .model
-                    .face(BlockFaceIndex::NEG_Z)
+                    .face(FaceIndex::NEG_Z)
                     .is_none();
                 index += 1;
             }

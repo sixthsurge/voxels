@@ -1,9 +1,17 @@
 use std::sync::Arc;
 
+use itertools::Itertools;
+
+use self::visibility_graph::VisibilityGraph;
+
 use super::position_types::{ChunkPos, LocalBlockPos};
-use crate::block::BlockId;
+use crate::{
+    block::{BlockId, BLOCK_AIR},
+    util::measure_time::measure_time,
+};
 
 pub mod side;
+pub mod visibility_graph;
 
 pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_SIZE_LOG2: usize = 5;
@@ -16,13 +24,24 @@ pub const CHUNK_SIZE_I32: i32 = CHUNK_SIZE as i32;
 pub struct Chunk {
     pos: ChunkPos,
     storage: ChunkStorage,
+    visibility_graph: VisibilityGraph,
+    is_empty: bool,
 }
 
 impl Chunk {
     pub fn new(pos: ChunkPos, blocks: Vec<BlockId>) -> Self {
+        // this function is called from a parallel thread so it's OK to perform intensive tasks
+        // here
+        let visibility_graph = VisibilityGraph::compute(&blocks);
+        let is_empty = blocks
+            .iter()
+            .all(|&block_id| block_id == BLOCK_AIR);
+
         Self {
             pos,
             storage: ChunkStorage::new(blocks),
+            visibility_graph,
+            is_empty,
         }
     }
 
@@ -46,6 +65,16 @@ impl Chunk {
     /// Returns this chunk's position
     pub fn pos(&self) -> ChunkPos {
         self.pos
+    }
+
+    /// Returns the computed visibility graph for this chunk
+    pub fn visibility_graph(&self) -> VisibilityGraph {
+        self.visibility_graph
+    }
+
+    /// True if the chunk comprises entirely of air blocks
+    pub fn is_empty(&self) -> bool {
+        self.is_empty
     }
 }
 

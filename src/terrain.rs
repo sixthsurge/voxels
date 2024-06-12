@@ -53,7 +53,7 @@ impl Terrain {
         }
     }
 
-    /// Called each frame to update the Terrain
+    /// Called each frame to update the terrain
     /// * `world_anchors` - points around which chunks are loaded and unloaded
     pub fn update(&mut self, tasks: &mut Tasks) {
         self.check_for_newly_loaded_chunks();
@@ -68,12 +68,17 @@ impl Terrain {
 
     /// Returns the chunk at the given position, or none if it is not yet loaded
     pub fn get_chunk(&self, pos: ChunkPos) -> Option<&Chunk> {
-        self.loaded_chunks.get_chunk(pos)
+        self.loaded_chunks.get(pos)
     }
 
     /// True if the chunk with the given position is currently loaded
     pub fn has_chunk(&self, pos: ChunkPos) -> bool {
-        self.loaded_chunks.has_chunk(pos)
+        self.loaded_chunks.contains(pos)
+    }
+
+    /// Returns the currently loaded chunks
+    pub fn loaded_chunks(&self) -> &LoadedChunks {
+        &self.loaded_chunks
     }
 
     /// Returns an iterator over all events that have occurred since the last call to
@@ -99,7 +104,7 @@ impl Terrain {
 
     /// Spawn a task to begin loading a chunk
     fn load_chunk(&mut self, tasks: &mut Tasks, chunk_pos: ChunkPos, anchor_chunk: ChunkPos) {
-        debug_assert!(!self.loaded_chunks.has_chunk(chunk_pos));
+        debug_assert!(!self.loaded_chunks.contains(chunk_pos));
         debug_assert!(!self
             .loading_chunk_positions
             .contains(&chunk_pos));
@@ -166,27 +171,31 @@ impl Terrain {
 
     /// Start loading any chunks in range of an anchor that aren't already loaded or loading
     fn check_chunks_to_load(&mut self, tasks: &mut Tasks) {
-        // select positions of chunks that need to be loaded
         let mut chunks_to_load = Vec::new();
+
+        // get the positions of chunks that need to be loaded
         for anchor in &self.anchors {
-            // originally I iterated over all the chunks in the range, but this ate a huge chunk of
-            // the frame time, especially in debug builds
-            // instead I only iterate over all the chunks when the anchor is new (has never loaded
-            // any chunks before), and create an iterator that only covers the new chunks when
-            // an anchor moves
+            // originally this iterated over all the chunks in the range, but this ate a huge chunk
+            // of the frame time for huge render distances, especially in debug builds
+            // instead we only iterate over *all* the chunks when the anchor is new (has never
+            // loaded any chunks before), and create an iterator that only covers the new chunks
+            // when an anchor moves
             if anchor.is_new() {
                 for chunk_pos in anchor.iter_all_chunks_in_range() {
+                    // O(load_distance^3)
                     chunks_to_load.push((chunk_pos, anchor.get_center_chunk()));
                 }
             } else if anchor.has_moved_between_chunks() {
                 for chunk_pos in anchor.iter_new_chunks_in_range() {
+                    // O(load_distance^2)
                     chunks_to_load.push((chunk_pos, anchor.get_center_chunk()));
                 }
             }
         }
 
         for (chunk_pos, anchor_chunk) in chunks_to_load {
-            let chunk_loaded = self.loaded_chunks.has_chunk(chunk_pos);
+            // make sure the chunk isn't already loaded or queued for loading
+            let chunk_loaded = self.loaded_chunks.contains(chunk_pos);
             let chunk_loading = self
                 .loading_chunk_positions
                 .contains(&chunk_pos);
@@ -202,7 +211,7 @@ impl Terrain {
         let mut chunks_to_unload = Vec::new();
 
         // for each anchor, if it has moved get the list of chunks that are no longer loaded by
-        // that anchor, and check if each chunk in that list is loaded by a different anchor
+        // that anchor, and check if each chunk in that list is still loaded by a different anchor
         // - if it isn't, it should be unloaded
         for anchor in &self.anchors {
             // skip anchors that are new or have not moved between chunks
@@ -426,7 +435,7 @@ impl Anchor {
 /// Data structure for storing loaded chunks
 /// combines a HashMap for O(1) access with a Vec of keys for faster iteration
 #[derive(Debug)]
-struct LoadedChunks {
+pub struct LoadedChunks {
     chunks: FxHashMap<ChunkPos, Chunk>,
     loaded_chunk_positions: Vec<ChunkPos>,
 }
@@ -439,7 +448,7 @@ impl LoadedChunks {
         }
     }
 
-    fn add(&mut self, chunk: Chunk) {
+    pub fn add(&mut self, chunk: Chunk) {
         debug_assert!(!self
             .loaded_chunk_positions
             .contains(&chunk.pos()));
@@ -449,7 +458,7 @@ impl LoadedChunks {
         self.chunks.insert(chunk.pos(), chunk);
     }
 
-    fn remove(&mut self, chunk_pos: ChunkPos) {
+    pub fn remove(&mut self, chunk_pos: ChunkPos) {
         debug_assert!(self
             .loaded_chunk_positions
             .contains(&chunk_pos));
@@ -463,11 +472,21 @@ impl LoadedChunks {
         self.chunks.remove(&chunk_pos);
     }
 
-    fn get_chunk(&self, pos: ChunkPos) -> Option<&Chunk> {
+    pub fn get(&self, pos: ChunkPos) -> Option<&Chunk> {
         self.chunks.get(&pos)
     }
 
-    fn has_chunk(&self, pos: ChunkPos) -> bool {
+    pub fn contains(&self, pos: ChunkPos) -> bool {
         self.chunks.contains_key(&pos)
+    }
+
+    pub fn len(&self) -> usize {
+        self.chunks.len()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Chunk> {
+        self.loaded_chunk_positions
+            .iter()
+            .map(|chunk_pos| &self.chunks[chunk_pos])
     }
 }

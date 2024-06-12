@@ -9,7 +9,7 @@ pub struct MipGenerator {
 
 impl MipGenerator {
     pub fn new(device: &wgpu::Device, texture_format: wgpu::TextureFormat) -> Self {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("../shaders/blit.wgsl"));
+        let shader = device.create_shader_module(wgpu::include_wgsl!("../../shaders/blit.wgsl"));
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("blit"),
@@ -45,7 +45,7 @@ impl MipGenerator {
     }
 
     /// generate mipmaps for a 2D texture or texture array
-    pub fn gen_mips(
+    pub fn generate_mips(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         device: &wgpu::Device,

@@ -1,6 +1,7 @@
 use glam::{UVec2, UVec3, Vec2, Vec3};
 
-use super::vertex::ChunkVertex;
+use super::face::{FaceDir, NegX, NegY, NegZ, PosX, PosY, PosZ};
+use super::vertex::TerrainVertex;
 use crate::{
     block::{model::BlockFace, BlockId, BLOCKS},
     terrain::chunk::{side::ChunkSide, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
@@ -23,15 +24,15 @@ pub struct ChunkMeshInput<'a> {
 /// Compared to `mesh_greedy`, meshing is much faster but the resulting meshes
 /// are more complex and therefore slower to render
 #[allow(unused)]
-pub fn mesh_culled(input: ChunkMeshInput) -> Vec<ChunkVertex> {
+pub fn mesh_culled(input: ChunkMeshInput) -> Vec<TerrainVertex> {
     let mut vertices = Vec::new();
 
-    add_visible_faces::<face::PosX>(&mut vertices, input);
-    add_visible_faces::<face::PosY>(&mut vertices, input);
-    add_visible_faces::<face::PosZ>(&mut vertices, input);
-    add_visible_faces::<face::NegX>(&mut vertices, input);
-    add_visible_faces::<face::NegY>(&mut vertices, input);
-    add_visible_faces::<face::NegZ>(&mut vertices, input);
+    add_visible_faces::<PosX>(&mut vertices, input);
+    add_visible_faces::<PosY>(&mut vertices, input);
+    add_visible_faces::<PosZ>(&mut vertices, input);
+    add_visible_faces::<NegX>(&mut vertices, input);
+    add_visible_faces::<NegY>(&mut vertices, input);
+    add_visible_faces::<NegZ>(&mut vertices, input);
 
     vertices
 }
@@ -41,23 +42,23 @@ pub fn mesh_culled(input: ChunkMeshInput) -> Vec<ChunkVertex> {
 /// Compared to `culled`, meshing is much slower but the resulting meshes
 /// are simpler and therefore faster to render
 #[allow(unused)]
-pub fn mesh_greedy(input: ChunkMeshInput) -> Vec<ChunkVertex> {
+pub fn mesh_greedy(input: ChunkMeshInput) -> Vec<TerrainVertex> {
     let mut vertices = Vec::new();
 
-    add_greedy_merged_faces::<face::PosX>(&mut vertices, input);
-    add_greedy_merged_faces::<face::PosY>(&mut vertices, input);
-    add_greedy_merged_faces::<face::PosZ>(&mut vertices, input);
-    add_greedy_merged_faces::<face::NegX>(&mut vertices, input);
-    add_greedy_merged_faces::<face::NegY>(&mut vertices, input);
-    add_greedy_merged_faces::<face::NegZ>(&mut vertices, input);
+    add_greedy_merged_faces::<PosX>(&mut vertices, input);
+    add_greedy_merged_faces::<PosY>(&mut vertices, input);
+    add_greedy_merged_faces::<PosZ>(&mut vertices, input);
+    add_greedy_merged_faces::<NegX>(&mut vertices, input);
+    add_greedy_merged_faces::<NegY>(&mut vertices, input);
+    add_greedy_merged_faces::<NegZ>(&mut vertices, input);
 
     vertices
 }
 
 /// Decides whether the two faces can be merged
-fn can_merge_faces<FaceDir>(first: Option<BlockFace>, second: Option<BlockFace>) -> bool
+fn can_merge_faces<Dir>(first: Option<BlockFace>, second: Option<BlockFace>) -> bool
 where
-    FaceDir: face::FaceDir,
+    Dir: FaceDir,
 {
     let faces_match = first == second;
 
@@ -66,48 +67,44 @@ where
 
 /// Add a single axis-aligned face to the mesh
 /// `origin` is the position of the cell with the smallest coordinates that this face covers
-fn add_face<FaceDir>(
-    vertices: &mut Vec<ChunkVertex>,
-    origin: Vec3,
-    size: Vec2,
-    texture_index: usize,
-) where
-    FaceDir: face::FaceDir,
+fn add_face<Dir>(vertices: &mut Vec<TerrainVertex>, origin: Vec3, size: Vec2, texture_index: usize)
+where
+    Dir: FaceDir,
 {
     let uvs = [[0.0, size.y], [size.x, size.y], [size.x, 0.0], [0.0, 0.0]];
 
     vertices.extend(
-        FaceDir::vertices(size)
+        Dir::vertices(size)
             .iter()
             .enumerate()
-            .map(|(i, vertex_offset)| ChunkVertex {
+            .map(|(i, vertex_offset)| TerrainVertex {
                 position: (origin + *vertex_offset).to_array(),
                 uv: uvs[i],
                 texture_index: texture_index as u32,
-                shading: FaceDir::SHADING,
+                shading: Dir::SHADING,
             }),
     );
 }
 
 /// Add all visible faces for the given face direction
-fn add_visible_faces<FaceDir>(vertices: &mut Vec<ChunkVertex>, input: ChunkMeshInput)
+fn add_visible_faces<Dir>(vertices: &mut Vec<TerrainVertex>, input: ChunkMeshInput)
 where
-    FaceDir: face::FaceDir,
+    Dir: FaceDir,
 {
     for pos_parallel_x in 0..CHUNK_SIZE_U32 {
         for pos_parallel_y in 0..CHUNK_SIZE_U32 {
             let index_in_layer = (CHUNK_SIZE_U32 * pos_parallel_y + pos_parallel_x) as usize;
-            let mut visible = input.surrounding_sides[FaceDir::FACE_INDEX.as_usize()]
+            let mut visible = input.surrounding_sides[Dir::FACE_INDEX.as_usize()]
                 .as_ref()
                 .map(|side| side.faces[index_in_layer])
                 .unwrap_or(true);
 
             for pos_perpendicular in 0..CHUNK_SIZE_U32 {
-                let pos_in_chunk = FaceDir::rotate_uvec3(UVec3::new(
+                let pos_in_chunk = Dir::rotate_uvec3(UVec3::new(
                     pos_parallel_x,
                     pos_parallel_y,
                     // iterate backwards through the chunk
-                    if FaceDir::NEGATIVE {
+                    if Dir::NEGATIVE {
                         pos_perpendicular
                     } else {
                         (CHUNK_SIZE_U32 - 1) - pos_perpendicular
@@ -117,10 +114,10 @@ where
                 let block_id = input.blocks[uvec3_to_chunk_index(pos_in_chunk)];
                 let block_model = &BLOCKS[block_id.0 as usize].model;
 
-                let face = block_model.face(FaceDir::FACE_INDEX);
+                let face = block_model.face(Dir::FACE_INDEX);
                 if let Some(face) = face {
                     if visible {
-                        add_face::<FaceDir>(
+                        add_face::<Dir>(
                             vertices,
                             pos_in_chunk.as_vec3() + input.translation,
                             Vec2::ONE,
@@ -130,7 +127,7 @@ where
                 }
 
                 visible = block_model
-                    .face(FaceDir::OPPOSITE_FACE_INDEX)
+                    .face(Dir::OPPOSITE_FACE_INDEX)
                     .is_none();
             }
         }
@@ -138,9 +135,9 @@ where
 }
 
 /// Greedily merge visible faces with the given direction and add them to the mesh
-fn add_greedy_merged_faces<FaceDir>(vertices: &mut Vec<ChunkVertex>, input: ChunkMeshInput)
+fn add_greedy_merged_faces<Dir>(vertices: &mut Vec<TerrainVertex>, input: ChunkMeshInput)
 where
-    FaceDir: face::FaceDir,
+    Dir: FaceDir,
 {
     // references:
     // - https://eddieabbondanz.io/post/voxel/greedy-mesh/
@@ -154,7 +151,7 @@ where
     /// `merge_candidate_u` and `merge_candidate_v` in the layer with position `layer_pos`
     /// returns two booleans: whether the face can be merged, and whether the block with the
     /// same U and V coordinates in the following layer is visible
-    fn consider_merge_candidate<FaceDir>(
+    fn consider_merge_candidate<Dir>(
         blocks: &[BlockId],
         visible: &[bool; CHUNK_SIZE_SQUARED],
         layer_pos: u32,
@@ -163,23 +160,23 @@ where
         merge_candidate_v: u32,
     ) -> (bool, bool)
     where
-        FaceDir: face::FaceDir,
+        Dir: FaceDir,
     {
         let merge_candidate_pos = UVec3::new(merge_candidate_u, merge_candidate_v, layer_pos);
-        let merge_candidate_pos = FaceDir::rotate_uvec3(merge_candidate_pos);
+        let merge_candidate_pos = Dir::rotate_uvec3(merge_candidate_pos);
 
         let merge_candidate_index_in_layer =
             (CHUNK_SIZE_U32 * merge_candidate_v + merge_candidate_u) as usize;
 
         let merge_candidate_id = blocks[uvec3_to_chunk_index(merge_candidate_pos) as usize];
         let merge_candidate_model = &BLOCKS[merge_candidate_id.0 as usize].model;
-        let merge_candidate_face = merge_candidate_model.face(FaceDir::FACE_INDEX);
+        let merge_candidate_face = merge_candidate_model.face(Dir::FACE_INDEX);
         let merge_candidate_visible = visible[merge_candidate_index_in_layer];
 
-        let can_merge = can_merge_faces::<FaceDir>(Some(original_face), merge_candidate_face)
+        let can_merge = can_merge_faces::<Dir>(Some(original_face), merge_candidate_face)
             && merge_candidate_visible;
         let next_visible = merge_candidate_model
-            .face(FaceDir::OPPOSITE_FACE_INDEX)
+            .face(Dir::OPPOSITE_FACE_INDEX)
             .is_none();
 
         (can_merge, next_visible)
@@ -189,7 +186,7 @@ where
     // a face is visible if the block in the previous layer had no face in
     // the opposite direction
     let mut visible: [bool; CHUNK_SIZE_SQUARED] =
-        if let Some(side) = &input.surrounding_sides[FaceDir::FACE_INDEX.as_usize()] {
+        if let Some(side) = &input.surrounding_sides[Dir::FACE_INDEX.as_usize()] {
             *side.faces
         } else {
             [true; CHUNK_SIZE_SQUARED]
@@ -199,7 +196,7 @@ where
     for layer_index in 0..CHUNK_SIZE_U32 {
         // position of this layer, moving backwards through the chunk with respect to the face
         // direction
-        let layer_pos = if FaceDir::NEGATIVE {
+        let layer_pos = if Dir::NEGATIVE {
             layer_index
         } else {
             (CHUNK_SIZE_U32 - 1) - layer_index
@@ -221,17 +218,16 @@ where
                 }
 
                 // position of this block in the chunk
-                let original_pos =
-                    FaceDir::rotate_uvec3(UVec3::new(original_u, original_v, layer_pos));
+                let original_pos = Dir::rotate_uvec3(UVec3::new(original_u, original_v, layer_pos));
 
                 let original_id = input.blocks[uvec3_to_chunk_index(original_pos) as usize];
                 let original_model = &BLOCKS[original_id.0 as usize].model;
-                let original_face = original_model.face(FaceDir::FACE_INDEX);
+                let original_face = original_model.face(Dir::FACE_INDEX);
                 let original_visible = visible[original_index];
 
                 // update `visible` for the next layer
                 visible[original_index] = original_model
-                    .face(FaceDir::OPPOSITE_FACE_INDEX)
+                    .face(Dir::OPPOSITE_FACE_INDEX)
                     .is_none();
 
                 // skip if there is no face or the face is invisible
@@ -243,7 +239,7 @@ where
                 // march to see how many faces can be merged in the U direction
                 let mut face_size = UVec2::ONE;
                 for merge_candidate_u in (original_u + 1)..CHUNK_SIZE_U32 {
-                    let (can_merge, next_visible) = consider_merge_candidate::<FaceDir>(
+                    let (can_merge, next_visible) = consider_merge_candidate::<Dir>(
                         input.blocks,
                         &visible,
                         layer_pos,
@@ -282,7 +278,7 @@ where
                     // see if we can merge the next layer down by checking all blocks on this
                     // layer in the U direction
                     for merge_candidate_u in original_u..(original_u + face_size.x) {
-                        let (can_merge, next_visible) = consider_merge_candidate::<FaceDir>(
+                        let (can_merge, next_visible) = consider_merge_candidate::<Dir>(
                             input.blocks,
                             &visible,
                             layer_pos,
@@ -318,7 +314,7 @@ where
                 }
 
                 // create the merged face
-                add_face::<FaceDir>(
+                add_face::<Dir>(
                     vertices,
                     original_pos.as_vec3() + input.translation,
                     face_size.as_vec2(),
@@ -351,209 +347,4 @@ pub fn generate_indices(vertex_count: usize) -> Vec<u32> {
 
 fn uvec3_to_chunk_index(pos: UVec3) -> usize {
     ((CHUNK_SIZE_U32 * CHUNK_SIZE_U32) * pos.z + CHUNK_SIZE_U32 * pos.y + pos.x) as usize
-}
-
-mod face {
-    use glam::{UVec3, Vec2, Vec3, Vec3Swizzles};
-
-    use crate::block::model::BlockFaceIndex;
-
-    /// Face directions
-    pub trait FaceDir {
-        /// Index assigned to this face direction
-        const FACE_INDEX: BlockFaceIndex;
-
-        /// Index assigned to the opposite face direction
-        const OPPOSITE_FACE_INDEX: BlockFaceIndex;
-
-        /// Whether this face direction points away from its axis
-        const NEGATIVE: bool;
-
-        /// Directional shading for this face
-        const SHADING: f32;
-
-        /// Returns the 4 vertices for a face pointing in this direction
-        /// * `size`: The size of the face on the two perpendicular directions
-        /// When looking at the face head on, the first vertex is at the bottom left and the
-        /// following vertices proceed anticlockwise
-        fn vertices(size: Vec2) -> [Vec3; 4];
-
-        /// Given a vector whose x and y components are specified parallel to the face and whose z
-        /// component is specified perpendicular to the face, converts it to absolute coordinates
-        /// by swizzling
-        /// rotate_vec3(Vec3::new(0.0, 0.0, 1.0)) gives the axis of the face
-        /// rotate_vec3(Vec3::new(1.0, 0.0, 0.0)) gives a tangent of the face
-        /// rotate_vec3(Vec3::new(0.0, 1.0, 0.0)) gives another tangent of the face
-        fn rotate_vec3(v: Vec3) -> Vec3;
-
-        /// Given a vector whose x and y components are specified parallel to the face and whose z
-        /// component is specified perpendicular to the face, converts it to absolute coordinates by
-        /// swizzling
-        /// rotate_uvec3(UVec3::new(0, 0, 1)) gives the axis of the face
-        /// rotate_uvec3(UVec3::new(1, 0, 0)) gives a tangent of the face
-        /// rotate_uvec3(UVec3::new(0, 1, 0)) gives another tangent of the face
-        fn rotate_uvec3(v: UVec3) -> UVec3;
-    }
-
-    /// +x
-    pub struct PosX;
-
-    impl FaceDir for PosX {
-        const FACE_INDEX: BlockFaceIndex = BlockFaceIndex::POS_X;
-        const OPPOSITE_FACE_INDEX: BlockFaceIndex = BlockFaceIndex::NEG_X;
-        const NEGATIVE: bool = false;
-        const SHADING: f32 = 0.7;
-
-        fn vertices(size: Vec2) -> [Vec3; 4] {
-            [
-                Vec3::new(1.0, 0.0, size.x),
-                Vec3::new(1.0, 0.0, 0.0),
-                Vec3::new(1.0, size.y, 0.0),
-                Vec3::new(1.0, size.y, size.x),
-            ]
-        }
-
-        fn rotate_vec3(v: Vec3) -> Vec3 {
-            v.zyx()
-        }
-
-        fn rotate_uvec3(v: UVec3) -> UVec3 {
-            v.zyx()
-        }
-    }
-
-    /// +y
-    pub struct PosY;
-
-    impl FaceDir for PosY {
-        const FACE_INDEX: BlockFaceIndex = BlockFaceIndex::POS_Y;
-        const OPPOSITE_FACE_INDEX: BlockFaceIndex = BlockFaceIndex::NEG_Y;
-        const NEGATIVE: bool = false;
-        const SHADING: f32 = 1.0;
-
-        fn vertices(size: Vec2) -> [Vec3; 4] {
-            [
-                Vec3::new(0.0, 1.0, 0.0),
-                Vec3::new(0.0, 1.0, size.x),
-                Vec3::new(size.y, 1.0, size.x),
-                Vec3::new(size.y, 1.0, 0.0),
-            ]
-        }
-
-        fn rotate_vec3(v: Vec3) -> Vec3 {
-            v.yzx()
-        }
-
-        fn rotate_uvec3(v: UVec3) -> UVec3 {
-            v.yzx()
-        }
-    }
-
-    /// +z
-    pub struct PosZ;
-
-    impl FaceDir for PosZ {
-        const FACE_INDEX: BlockFaceIndex = BlockFaceIndex::POS_Z;
-        const OPPOSITE_FACE_INDEX: BlockFaceIndex = BlockFaceIndex::NEG_Z;
-        const NEGATIVE: bool = false;
-        const SHADING: f32 = 0.8;
-
-        fn vertices(size: Vec2) -> [Vec3; 4] {
-            [
-                Vec3::new(0.0, 0.0, 1.0),
-                Vec3::new(size.x, 0.0, 1.0),
-                Vec3::new(size.x, size.y, 1.0),
-                Vec3::new(0.0, size.y, 1.0),
-            ]
-        }
-
-        fn rotate_vec3(v: Vec3) -> Vec3 {
-            v
-        }
-
-        fn rotate_uvec3(v: UVec3) -> UVec3 {
-            v
-        }
-    }
-
-    /// -x
-    pub struct NegX;
-
-    impl FaceDir for NegX {
-        const FACE_INDEX: BlockFaceIndex = BlockFaceIndex::NEG_X;
-        const OPPOSITE_FACE_INDEX: BlockFaceIndex = BlockFaceIndex::POS_X;
-        const NEGATIVE: bool = true;
-        const SHADING: f32 = 0.7;
-
-        fn vertices(size: Vec2) -> [Vec3; 4] {
-            [
-                Vec3::new(0.0, 0.0, 0.0),
-                Vec3::new(0.0, 0.0, size.x),
-                Vec3::new(0.0, size.y, size.x),
-                Vec3::new(0.0, size.y, 0.0),
-            ]
-        }
-
-        fn rotate_vec3(v: Vec3) -> Vec3 {
-            v.zyx()
-        }
-
-        fn rotate_uvec3(v: UVec3) -> UVec3 {
-            v.zyx()
-        }
-    }
-
-    /// -y
-    pub struct NegY;
-
-    impl FaceDir for NegY {
-        const FACE_INDEX: BlockFaceIndex = BlockFaceIndex::NEG_Y;
-        const OPPOSITE_FACE_INDEX: BlockFaceIndex = BlockFaceIndex::POS_Y;
-        const NEGATIVE: bool = true;
-        const SHADING: f32 = 0.5;
-
-        fn vertices(size: Vec2) -> [Vec3; 4] {
-            [
-                Vec3::new(size.y, 0.0, 0.0),
-                Vec3::new(size.y, 0.0, size.x),
-                Vec3::new(0.0, 0.0, size.x),
-                Vec3::new(0.0, 0.0, 0.0),
-            ]
-        }
-
-        fn rotate_vec3(v: Vec3) -> Vec3 {
-            v.yzx()
-        }
-
-        fn rotate_uvec3(v: UVec3) -> UVec3 {
-            v.yzx()
-        }
-    }
-
-    /// -z
-    pub struct NegZ;
-
-    impl FaceDir for NegZ {
-        const FACE_INDEX: BlockFaceIndex = BlockFaceIndex::NEG_Z;
-        const OPPOSITE_FACE_INDEX: BlockFaceIndex = BlockFaceIndex::POS_Z;
-        const NEGATIVE: bool = true;
-        const SHADING: f32 = 0.6;
-
-        fn vertices(size: Vec2) -> [Vec3; 4] {
-            [
-                Vec3::new(size.x, 0.0, 0.0),
-                Vec3::new(0.0, 0.0, 0.0),
-                Vec3::new(0.0, size.y, 0.0),
-                Vec3::new(size.x, size.y, 0.0),
-            ]
-        }
-
-        fn rotate_vec3(v: Vec3) -> Vec3 {
-            v
-        }
-
-        fn rotate_uvec3(v: UVec3) -> UVec3 {
-            v
-        }
-    }
 }

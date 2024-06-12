@@ -48,6 +48,21 @@ impl LocalBlockPos {
         ((CHUNK_SIZE_U32 * CHUNK_SIZE_U32) * self.0.z + CHUNK_SIZE_U32 * self.0.y + self.0.x)
             as usize
     }
+
+    /// If `self.0 + other` is a local block position, return it.
+    /// Otherwise, return None
+    pub fn try_add(&self, other: IVec3) -> Option<LocalBlockPos> {
+        let sum = self.0.as_ivec3() + other;
+        let not_underflow = sum.cmpge(IVec3::ZERO).all();
+        let not_overflow = sum
+            .cmplt(IVec3::splat(CHUNK_SIZE_I32))
+            .all();
+        if not_underflow && not_overflow {
+            Some(Self(sum.as_uvec3()))
+        } else {
+            None
+        }
+    }
 }
 
 /// Position of a chunk in the world

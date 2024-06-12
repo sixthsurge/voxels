@@ -1,4 +1,4 @@
-use glam::Mat4;
+use glam::{Mat4, Vec3};
 use winit::dpi::PhysicalSize;
 
 use crate::util::transform::Transform;
@@ -68,5 +68,17 @@ impl Camera {
         if let Projection::Perspective { aspect_ratio, .. } = &mut self.projection {
             *aspect_ratio = new_size.width as f32 / new_size.height as f32;
         }
+    }
+
+    /// Returns the position of the camera in the world
+    pub fn pos(&self) -> Vec3 {
+        self.transform.translation
+    }
+
+    /// Returns the direction the camera is looking in
+    pub fn look_dir(&self) -> Vec3 {
+        self.transform
+            .rotation
+            .mul_vec3(Vec3::NEG_Z)
     }
 }

@@ -5,83 +5,26 @@ use winit::{dpi::PhysicalSize, window::Window};
 
 #[derive(Debug)]
 pub struct RenderContext {
-    pub surface: wgpu::Surface<'static>,
-    pub surface_config: wgpu::SurfaceConfiguration,
+    pub window_size: PhysicalSize<u32>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
-    pub window_size: PhysicalSize<u32>,
+    pub surface: wgpu::Surface<'static>,
+    pub surface_config: wgpu::SurfaceConfiguration,
 }
 
 impl RenderContext {
-    pub async fn async_new(window: Arc<Window>) -> Self {
+    pub fn new(window: Arc<Window>) -> Self {
         let window_size = window.inner_size();
 
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
-        });
-
-        let surface = instance
-            .create_surface(window.clone())
-            .expect("failed to create surface");
-
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .expect("failed to create adapter");
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    required_features: wgpu::Features::POLYGON_MODE_LINE,
-                    required_limits: wgpu::Limits::default(),
-                    label: None,
-                },
-                None,
-            )
-            .await
-            .expect("failed to create device");
-
-        let surface_caps = surface.get_capabilities(&adapter);
-
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .copied()
-            .filter(|format| format.is_srgb())
-            .next()
-            .unwrap_or_else(|| {
-                log::warn!("non-sRGB surface format");
-                surface_caps.formats[0]
-            });
-
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: window_size.width,
-            height: window_size.height,
-            present_mode: wgpu::PresentMode::AutoNoVsync,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
-        surface.configure(&device, &surface_config);
+        let (device, queue, surface, surface_config) = init_wgpu(window);
 
         Self {
             window_size,
-            surface,
-            surface_config,
             device,
             queue,
+            surface,
+            surface_config,
         }
-    }
-
-    pub fn new(window: Arc<Window>) -> Self {
-        Self::async_new(window).block_on()
     }
 
     pub fn resized(&mut self, new_size: PhysicalSize<u32>) {
@@ -111,4 +54,73 @@ impl RenderContext {
             }
         }
     }
+}
+
+/// Create the core wgpu resources: device, queue, surface and surface configuration
+fn init_wgpu(
+    window: Arc<Window>,
+) -> (
+    wgpu::Device,
+    wgpu::Queue,
+    wgpu::Surface<'static>,
+    wgpu::SurfaceConfiguration,
+) {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        ..Default::default()
+    });
+
+    let surface = instance
+        .create_surface(window.clone())
+        .expect("failed to create surface");
+
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
+        })
+        .block_on()
+        .expect("failed to create adapter");
+
+    let (device, queue) = adapter
+        .request_device(
+            &wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::POLYGON_MODE_LINE,
+                required_limits: wgpu::Limits::default(),
+                label: None,
+            },
+            None,
+        )
+        .block_on()
+        .expect("failed to create device");
+
+    let surface_caps = surface.get_capabilities(&adapter);
+
+    let surface_format = surface_caps
+        .formats
+        .iter()
+        .copied()
+        .filter(|format| format.is_srgb())
+        .next()
+        .unwrap_or_else(|| {
+            log::warn!("non-sRGB surface format");
+            surface_caps.formats[0]
+        });
+
+    let surface_config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format: surface_format,
+        width: window.inner_size().width,
+        height: window.inner_size().height,
+        present_mode: wgpu::PresentMode::AutoNoVsync,
+        alpha_mode: wgpu::CompositeAlphaMode::Auto,
+        view_formats: vec![],
+        desired_maximum_frame_latency: 2,
+    };
+
+    surface.configure(&device, &surface_config);
+    surface.configure(&device, &surface_config);
+
+    (device, queue, surface, surface_config)
 }
