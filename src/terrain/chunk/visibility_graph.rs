@@ -123,19 +123,13 @@ impl VisibilityGraph {
             }
         }
 
-        // 16th bit represents a face connecting to the same face - always true
-        //connection_bits |= 1 << 15;
-
         Self(connection_bits)
     }
 
     /// True if face A is connected to face B through non-opaque blocks.
     /// We assume that if ¬connected(face_a, face_b) then face_b cannot be visible through face_a
     /// and vice-versa
-    /// Requires that `face_a` != `face_b`
     pub fn connected(&self, face_a: FaceIndex, face_b: FaceIndex) -> bool {
-        debug_assert!(face_a != face_b);
-
         let connection_index = CONNECTION_INDICES[face_a.as_usize() * 6 + face_b.as_usize()];
 
         (self.0 & (1 << connection_index)) != 0

@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use fly_camera::FlyCamera;
+use generational_arena::Index;
 use glam::IVec3;
 use input::Input;
 use render::{context::RenderContext, RenderEngine};
 use tasks::Tasks;
-use terrain::{Anchor, Terrain};
+use terrain::{area::Area, chunk::CHUNK_SIZE, position_types::ChunkPos, Terrain};
 use time::{TargetFrameRate, Time};
+use util::size::Size3;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -48,6 +50,7 @@ struct State {
     tasks: Tasks,
     render_engine: RenderEngine,
     terrain: Terrain,
+    area_index: Index,
     fly_camera: FlyCamera,
     fly_camera_active: bool,
     close_requested: bool,
@@ -64,9 +67,11 @@ impl State {
         let mut terrain = Terrain::new();
         let fly_camera = FlyCamera::default();
 
-        terrain
-            .anchors_mut()
-            .push(Anchor::new(fly_camera.position, IVec3::new(20, 10, 20)));
+        let area_index = terrain.areas_mut().insert(Area::new(
+            ChunkPos::ZERO,
+            Size3::new(40, 8, 40),
+            terrain::area::AreaShape::Cubic,
+        ));
 
         Self {
             window,
@@ -75,11 +80,12 @@ impl State {
             time,
             tasks,
             terrain,
+            area_index,
             render_engine,
             fly_camera,
             fly_camera_active: true,
             close_requested: false,
-            use_cave_culling: true,
+            use_cave_culling: false,
         }
     }
 
@@ -113,7 +119,8 @@ impl State {
         self.render_engine
             .camera_mut()
             .transform = self.fly_camera.get_transform();
-        self.terrain.anchors_mut()[0].set_pos(self.fly_camera.position);
+        self.terrain.areas_mut()[self.area_index]
+            .set_center(self.fly_camera.position / (CHUNK_SIZE as f32));
 
         self.terrain.clear_events();
         self.terrain.update(&mut self.tasks);
@@ -141,11 +148,18 @@ impl State {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
+        let loaded_area = self
+            .terrain
+            .areas()
+            .get(self.area_index)
+            .unwrap();
+
         self.render_engine.render(
             &self.render_context,
             &output_view,
             &mut self.tasks,
             &self.terrain,
+            loaded_area,
             self.use_cave_culling,
         );
 

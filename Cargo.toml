@@ -15,6 +15,7 @@ bracket-noise = "0.8"
 bytemuck = { version = "1.15", features = [ "derive" ] }
 derive_more = "0.99"
 env_logger = "0.11"
+generational-arena = "0.2.9"
 glam = "0.27"
 image = "0.25"
 itertools = "0.13"

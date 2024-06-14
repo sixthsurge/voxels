@@ -273,7 +273,7 @@ where
                     // merging will be visible
                     // this avoids having to check the model again once it has been decided
                     // the layers can be merged
-                    let mut visibility_flags: u32 = 0;
+                    let mut visibility_flags: u64 = 0;
 
                     // see if we can merge the next layer down by checking all blocks on this
                     // layer in the U direction
@@ -293,7 +293,7 @@ where
                         }
 
                         // update visibility flags
-                        visibility_flags |= (next_visible as u32) << merge_candidate_u;
+                        visibility_flags |= (next_visible as u64) << merge_candidate_u;
                     }
 
                     // merge layers

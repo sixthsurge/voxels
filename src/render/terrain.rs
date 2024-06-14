@@ -1,26 +1,23 @@
 use std::{
-    collections::VecDeque,
     sync::mpsc::{self, Receiver, Sender},
     time::Instant,
 };
 
-use glam::{IVec3, UVec3, Vec3};
+use glam::{IVec3, Mat4, UVec3, Vec3};
+use image::load;
 use itertools::Itertools;
 use rustc_hash::{FxHashMap, FxHashSet};
-use wgpu::naga::valid::CallError;
 
 use crate::{
     tasks::{TaskId, TaskPriority, Tasks},
     terrain::{
-        chunk::{side::ChunkSide, Chunk, CHUNK_SIZE, CHUNK_SIZE_I32},
+        area::Area,
+        chunk::{side::ChunkSide, Chunk, CHUNK_SIZE_I32},
         event::TerrainEvent,
         position_types::ChunkPos,
         Terrain,
     },
-    util::{
-        face_index::{self, FACE_NORMALS},
-        measure_time::measure_time,
-    },
+    util::measure_time::measure_time,
     CHUNK_MESH_GENERATION_PRIORITY, CHUNK_MESH_OPTIMIZATION_PRIORITY,
 };
 
@@ -193,29 +190,32 @@ impl TerrainRenderer {
         cx: &RenderContext,
         tasks: &mut Tasks,
         terrain: &Terrain,
+        loaded_area: &Area,
+        view_projection_matrix: Mat4,
         camera_pos: Vec3,
-        camera_look_dir: Vec3,
         use_cave_culling: bool,
     ) {
         // get the list of chunks to be rendered in order
         let render_queue = if use_cave_culling {
             measure_time!(cave_culling::visibility_search(
                 terrain,
-                camera_pos,
-                camera_look_dir
+                loaded_area,
+                view_projection_matrix,
+                camera_pos
             ))
         } else {
             terrain
-                .loaded_chunks()
+                .chunks()
                 .iter()
+                .map(|(_, chunk)| chunk)
                 .collect_vec()
         };
 
         // prepare for rendering, updating meshes as necessary
-        self.prepare(cx, &render_queue, tasks, terrain, camera_pos);
+        self.prepare(cx, &render_queue, tasks, terrain, loaded_area, camera_pos);
 
         for chunk in &render_queue {
-            self.request_mesh_updates_for_chunk(chunk, tasks, terrain, camera_pos);
+            self.request_mesh_updates_for_chunk(chunk, tasks, terrain, loaded_area, camera_pos);
         }
 
         // begin render pass
@@ -226,9 +226,9 @@ impl TerrainRenderer {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.0,
-                        g: 0.0,
-                        b: 0.0,
+                        r: 0.25,
+                        g: 0.45,
+                        b: 1.0,
                         a: 1.0,
                     }),
                     store: wgpu::StoreOp::Store,
@@ -284,11 +284,12 @@ impl TerrainRenderer {
         render_queue: &[&Chunk],
         tasks: &mut Tasks,
         terrain: &Terrain,
+        loaded_area: &Area,
         camera_pos: Vec3,
     ) {
         // request necessary mesh updates for all chunks in the queue
         for chunk in render_queue {
-            self.request_mesh_updates_for_chunk(chunk, tasks, terrain, camera_pos);
+            self.request_mesh_updates_for_chunk(chunk, tasks, terrain, loaded_area, camera_pos);
         }
 
         // process terrain events
@@ -302,7 +303,7 @@ impl TerrainRenderer {
         // check for newly finished meshes
         while let Ok(received) = self.finished_mesh_rx.try_recv() {
             let (chunk_pos, mesh_data) = received;
-            self.finished_meshing_chunk(cx, terrain, chunk_pos, mesh_data);
+            self.finished_meshing_chunk(cx, terrain, loaded_area, chunk_pos, mesh_data);
         }
 
         // remove any empty groups
@@ -367,6 +368,7 @@ impl TerrainRenderer {
         chunk: &Chunk,
         tasks: &mut Tasks,
         terrain: &Terrain,
+        loaded_area: &Area,
         camera_pos: Vec3,
     ) {
         if chunk.is_empty() {
@@ -381,11 +383,25 @@ impl TerrainRenderer {
                 ChunkMeshStatus::Good | ChunkMeshStatus::Generating => (),
                 ChunkMeshStatus::Suboptimal => {
                     group.mark_generating(chunk_pos_in_group);
-                    self.queue_chunk_for_meshing(chunk, tasks, terrain, camera_pos, true);
+                    self.queue_chunk_for_meshing(
+                        chunk,
+                        tasks,
+                        terrain,
+                        loaded_area,
+                        camera_pos,
+                        true,
+                    );
                 }
                 ChunkMeshStatus::NoneOrOutdated => {
                     group.mark_generating(chunk_pos_in_group);
-                    self.queue_chunk_for_meshing(chunk, tasks, terrain, camera_pos, false);
+                    self.queue_chunk_for_meshing(
+                        chunk,
+                        tasks,
+                        terrain,
+                        loaded_area,
+                        camera_pos,
+                        false,
+                    );
                 }
             }
         } else {
@@ -395,7 +411,7 @@ impl TerrainRenderer {
                 .meshing_tasks
                 .contains_key(&chunk.pos())
             {
-                self.queue_chunk_for_meshing(chunk, tasks, terrain, camera_pos, false);
+                self.queue_chunk_for_meshing(chunk, tasks, terrain, loaded_area, camera_pos, false);
             }
         }
     }
@@ -410,6 +426,7 @@ impl TerrainRenderer {
         chunk: &Chunk,
         tasks: &mut Tasks,
         terrain: &Terrain,
+        loaded_area: &Area,
         camera_pos: Vec3,
         is_optimization: bool,
     ) {
@@ -432,7 +449,7 @@ impl TerrainRenderer {
         // prepare a snapshot of data about the chunk for the meshing thread to use
         let chunk_pos = chunk.pos();
         let blocks = chunk.as_block_array();
-        let surrounding_sides = Self::get_surrounding_chunk_sides(chunk_pos, terrain);
+        let surrounding_sides = Self::get_surrounding_chunk_sides(chunk_pos, terrain, loaded_area);
 
         let class_priority = if is_optimization {
             CHUNK_MESH_OPTIMIZATION_PRIORITY
@@ -482,13 +499,14 @@ impl TerrainRenderer {
         &mut self,
         cx: &RenderContext,
         terrain: &Terrain,
+        loaded_area: &Area,
         chunk_pos: ChunkPos,
         mesh_data: ChunkMeshData,
     ) {
         self.meshing_tasks.remove(&chunk_pos);
 
         // make sure that the chunk is still loaded
-        if !terrain.has_chunk(chunk_pos) {
+        if !loaded_area.has_chunk_index(&chunk_pos) {
             return;
         }
 
@@ -594,24 +612,25 @@ impl TerrainRenderer {
     fn get_surrounding_chunk_sides(
         center_pos: ChunkPos,
         terrain: &Terrain,
+        loaded_area: &Area,
     ) -> Vec<Option<ChunkSide>> {
-        let side_px = terrain
-            .get_chunk(center_pos + ChunkPos::new(1, 0, 0))
+        let side_px = loaded_area
+            .get_chunk(terrain, &(center_pos + ChunkPos::new(1, 0, 0)))
             .map(ChunkSide::nx);
-        let side_py = terrain
-            .get_chunk(center_pos + ChunkPos::new(0, 1, 0))
+        let side_py = loaded_area
+            .get_chunk(terrain, &(center_pos + ChunkPos::new(0, 1, 0)))
             .map(ChunkSide::ny);
-        let side_pz = terrain
-            .get_chunk(center_pos + ChunkPos::new(0, 0, 1))
+        let side_pz = loaded_area
+            .get_chunk(terrain, &(center_pos + ChunkPos::new(0, 0, 1)))
             .map(ChunkSide::nz);
-        let side_nx = terrain
-            .get_chunk(center_pos + ChunkPos::new(-1, 0, 0))
+        let side_nx = loaded_area
+            .get_chunk(terrain, &(center_pos + ChunkPos::new(-1, 0, 0)))
             .map(ChunkSide::px);
-        let side_ny = terrain
-            .get_chunk(center_pos + ChunkPos::new(0, -1, 0))
+        let side_ny = loaded_area
+            .get_chunk(terrain, &(center_pos + ChunkPos::new(0, -1, 0)))
             .map(ChunkSide::py);
-        let side_nz = terrain
-            .get_chunk(center_pos + ChunkPos::new(0, 0, -1))
+        let side_nz = loaded_area
+            .get_chunk(terrain, &(center_pos + ChunkPos::new(0, 0, -1)))
             .map(ChunkSide::pz);
 
         vec![side_px, side_py, side_pz, side_nx, side_ny, side_nz]

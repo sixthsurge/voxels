@@ -1,4 +1,4 @@
-use glam::Vec4Swizzles;
+use glam::{Mat4, Vec4Swizzles};
 
 use self::{
     camera::{Camera, Projection},
@@ -9,7 +9,7 @@ use self::{
 };
 use crate::{
     tasks::Tasks,
-    terrain::Terrain,
+    terrain::{area::Area, chunk::visibility_graph, Terrain},
     util::{transform::Transform, DEGREE},
 };
 
@@ -70,7 +70,7 @@ impl RenderEngine {
             Transform::IDENTITY,
             Projection::Perspective {
                 aspect_ratio: cx.window_size.width as f32 / cx.window_size.height as f32,
-                fov_y_radians: 70.0 * DEGREE,
+                fov_y_radians: 80.0 * DEGREE,
                 z_near: 0.01,
                 z_far: 1000.0,
             },
@@ -92,6 +92,7 @@ impl RenderEngine {
         output_view: &wgpu::TextureView,
         tasks: &mut Tasks,
         terrain: &Terrain,
+        loaded_area: &Area,
         use_cave_culling: bool,
     ) {
         // update common uniforms
@@ -125,8 +126,9 @@ impl RenderEngine {
             cx,
             tasks,
             terrain,
+            loaded_area,
+            self.camera.projection_matrix() * self.camera.view_matrix(),
             self.camera.pos(),
-            self.camera.look_dir(),
             use_cave_culling,
         );
 
