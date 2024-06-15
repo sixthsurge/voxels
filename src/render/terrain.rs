@@ -4,48 +4,48 @@ use std::{
 };
 
 use glam::{IVec3, Mat4, UVec3, Vec3};
-use image::load;
 use itertools::Itertools;
 use rustc_hash::{FxHashMap, FxHashSet};
-
-use crate::{
-    tasks::{TaskId, TaskPriority, Tasks},
-    terrain::{
-        area::Area,
-        chunk::{side::ChunkSide, Chunk, CHUNK_SIZE_I32},
-        event::TerrainEvent,
-        position_types::ChunkPos,
-        Terrain,
-    },
-    util::measure_time::measure_time,
-    CHUNK_MESH_GENERATION_PRIORITY, CHUNK_MESH_OPTIMIZATION_PRIORITY,
-};
 
 use self::{
     meshing::ChunkMeshInput,
     render_groups::{ChunkRenderGroup, RENDER_GROUP_SIZE},
     vertex::TerrainVertex,
+    visibility_search::visibility_search,
 };
-
 use super::{
-    context::RenderContext,
+    frustum_culling::{self, FrustumCullingRegions},
+    render_context::RenderContext,
+    render_engine::RenderEngine,
     util::{
         bind_group_builder::BindGroupBuilder,
         mip_generator::MipGenerator,
         pipeline_builder::RenderPipelineBuilder,
         texture::{ArrayTexture, TextureConfig, TextureHolder},
     },
-    DEPTH_COMPARE, DEPTH_FORMAT,
+};
+use crate::{
+    tasks::{TaskId, TaskPriority, Tasks},
+    terrain::{
+        chunk::{side::ChunkSide, Chunk, CHUNK_SIZE_I32},
+        event::TerrainEvent,
+        load_area::LoadArea,
+        position_types::ChunkPos,
+        Terrain,
+    },
+    CHUNK_MESH_GENERATION_PRIORITY, CHUNK_MESH_OPTIMIZATION_PRIORITY,
 };
 
-mod cave_culling;
 mod face;
 mod meshing;
 mod render_groups;
 mod vertex;
+mod visibility_search;
 
 /// Responsible for rendering the voxel terrain
 pub struct TerrainRenderer {
+    /// Cull mode to use
+    cull_mode: TerrainCullMode,
     /// Render pipeline for drawing chunk render groups
     terrain_pipeline: wgpu::RenderPipeline,
     /// Bind group for the texture array
@@ -72,7 +72,9 @@ impl TerrainRenderer {
     pub fn new(
         cx: &RenderContext,
         common_uniforms_bind_group_layout: &wgpu::BindGroupLayout,
+        cull_mode: TerrainCullMode,
     ) -> Self {
+        // TODO load texture and shader using proper asset system rather than doing it here
         let texture_array = ArrayTexture::from_files(
             &cx.device,
             &cx.queue,
@@ -146,7 +148,7 @@ impl TerrainRenderer {
 
         let terrain_shader = cx
             .device
-            .create_shader_module(wgpu::include_wgsl!("../shaders/terrain.wgsl"));
+            .create_shader_module(wgpu::include_wgsl!("../../assets/shader/terrain.wgsl"));
 
         let (terrain_pipeline, _) = RenderPipelineBuilder::new()
             .with_label("Terrain Pipeline")
@@ -161,13 +163,13 @@ impl TerrainRenderer {
                 Some(wgpu::BlendState::REPLACE),
                 wgpu::ColorWrites::all(),
             )
-            .with_depth(DEPTH_FORMAT, DEPTH_COMPARE)
-            //.with_polygon_mode(wgpu::PolygonMode::Line)
+            .with_depth(RenderEngine::DEPTH_FORMAT, RenderEngine::DEPTH_COMPARE)
             .build(&cx.device);
 
         let (finished_mesh_tx, finished_mesh_rx) = mpsc::channel();
 
         Self {
+            cull_mode,
             terrain_pipeline,
             texture_bind_group,
             render_group_bind_group_layout,
@@ -180,7 +182,7 @@ impl TerrainRenderer {
         }
     }
 
-    /// Called each frame to render the terrain
+    /// Called once per frame to render the terrain
     pub fn render(
         &mut self,
         render_encoder: &mut wgpu::CommandEncoder,
@@ -190,32 +192,38 @@ impl TerrainRenderer {
         cx: &RenderContext,
         tasks: &mut Tasks,
         terrain: &Terrain,
-        loaded_area: &Area,
-        view_projection_matrix: Mat4,
+        load_area: &LoadArea,
+        frustum_culling_regions: &FrustumCullingRegions,
         camera_pos: Vec3,
-        use_cave_culling: bool,
     ) {
         // get the list of chunks to be rendered in order
-        let render_queue = if use_cave_culling {
-            measure_time!(cave_culling::visibility_search(
-                terrain,
-                loaded_area,
-                view_projection_matrix,
-                camera_pos
-            ))
-        } else {
-            terrain
+        let render_queue = match self.cull_mode {
+            TerrainCullMode::CullNone => terrain
                 .chunks()
                 .iter()
                 .map(|(_, chunk)| chunk)
-                .collect_vec()
+                .collect_vec(),
+            TerrainCullMode::Frustum => terrain
+                .chunks()
+                .iter()
+                .map(|(_, chunk)| chunk)
+                .filter(|chunk| frustum_culling_regions.is_chunk_within_frustum(&chunk.pos()))
+                .collect_vec(),
+            TerrainCullMode::VisibilitySearch => {
+                visibility_search(terrain, load_area, frustum_culling_regions, camera_pos)
+            }
         };
+        log::info!(
+            "Rendering {} of {} chunks",
+            render_queue.len(),
+            terrain.chunks().len()
+        );
 
         // prepare for rendering, updating meshes as necessary
-        self.prepare(cx, &render_queue, tasks, terrain, loaded_area, camera_pos);
+        self.prepare(cx, &render_queue, tasks, terrain, load_area, camera_pos);
 
         for chunk in &render_queue {
-            self.request_mesh_updates_for_chunk(chunk, tasks, terrain, loaded_area, camera_pos);
+            self.request_mesh_updates_for_chunk(chunk, tasks, terrain, load_area, camera_pos);
         }
 
         // begin render pass
@@ -277,14 +285,14 @@ impl TerrainRenderer {
         }
     }
 
-    /// Called each frame to prepare for rendering
+    /// Called once per frame to prepare for rendering
     pub fn prepare(
         &mut self,
         cx: &RenderContext,
         render_queue: &[&Chunk],
         tasks: &mut Tasks,
         terrain: &Terrain,
-        loaded_area: &Area,
+        loaded_area: &LoadArea,
         camera_pos: Vec3,
     ) {
         // request necessary mesh updates for all chunks in the queue
@@ -321,7 +329,7 @@ impl TerrainRenderer {
         // update the meshes of any dirty groups
         for group_pos in &self.render_groups_requiring_mesh_updates {
             if let Some(group) = self.active_groups.get_mut(&group_pos) {
-                measure_time!(group.update_mesh(&cx.device));
+                group.update_mesh(&cx.device);
             }
         }
         self.render_groups_requiring_mesh_updates
@@ -368,7 +376,7 @@ impl TerrainRenderer {
         chunk: &Chunk,
         tasks: &mut Tasks,
         terrain: &Terrain,
-        loaded_area: &Area,
+        loaded_area: &LoadArea,
         camera_pos: Vec3,
     ) {
         if chunk.is_empty() {
@@ -426,7 +434,7 @@ impl TerrainRenderer {
         chunk: &Chunk,
         tasks: &mut Tasks,
         terrain: &Terrain,
-        loaded_area: &Area,
+        loaded_area: &LoadArea,
         camera_pos: Vec3,
         is_optimization: bool,
     ) {
@@ -499,7 +507,7 @@ impl TerrainRenderer {
         &mut self,
         cx: &RenderContext,
         terrain: &Terrain,
-        loaded_area: &Area,
+        loaded_area: &LoadArea,
         chunk_pos: ChunkPos,
         mesh_data: ChunkMeshData,
     ) {
@@ -612,7 +620,7 @@ impl TerrainRenderer {
     fn get_surrounding_chunk_sides(
         center_pos: ChunkPos,
         terrain: &Terrain,
-        loaded_area: &Area,
+        loaded_area: &LoadArea,
     ) -> Vec<Option<ChunkSide>> {
         let side_px = loaded_area
             .get_chunk(terrain, &(center_pos + ChunkPos::new(1, 0, 0)))
@@ -649,4 +657,10 @@ enum ChunkMeshStatus {
 struct ChunkMeshData {
     pub vertices: Vec<TerrainVertex>,
     pub queued_instant: Instant,
+}
+
+pub enum TerrainCullMode {
+    CullNone,
+    Frustum,
+    VisibilitySearch,
 }

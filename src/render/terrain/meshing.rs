@@ -1,7 +1,9 @@
 use glam::{UVec2, UVec3, Vec2, Vec3};
 
-use super::face::{FaceDir, NegX, NegY, NegZ, PosX, PosY, PosZ};
-use super::vertex::TerrainVertex;
+use super::{
+    face::{FaceDir, NegX, NegY, NegZ, PosX, PosY, PosZ},
+    vertex::TerrainVertex,
+};
 use crate::{
     block::{model::BlockFace, BlockId, BLOCKS},
     terrain::chunk::{side::ChunkSide, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},

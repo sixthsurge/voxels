@@ -2,14 +2,13 @@ use derive_more::IsVariant;
 use generational_arena::Index;
 use glam::{Vec3, Vec3Swizzles};
 
+use super::{chunk::Chunk, position_types::ChunkPos, Terrain};
 use crate::util::size::{AsSize3, Size3};
 
-use super::{chunk::Chunk, position_types::ChunkPos, Terrain};
-
-/// An `Area` represents a region of terrain that is loaded in memory.
-/// The `Area` provides O(1) lookup for the chunks it contains
+/// An `LoadArea` represents a region of terrain that is loaded in memory.
+/// The `LoadArea` provides O(1) lookup for the chunks it contains
 #[derive(Clone, Debug)]
-pub struct Area {
+pub struct LoadArea {
     /// Lookup table for indices into the global chunk arena
     chunk_indices: Vec<Option<Index>>,
     /// Position of the lower corner of the area in chunks
@@ -26,7 +25,7 @@ pub struct Area {
     size_recip: Vec3,
 }
 
-impl Area {
+impl LoadArea {
     pub fn new(pos: ChunkPos, size: Size3, shape: AreaShape) -> Self {
         Self {
             pos,
@@ -167,9 +166,9 @@ impl Area {
 
 #[derive(Clone, Copy, Debug, IsVariant)]
 pub enum AreaStatus {
-    /// All chunks in the `Area` are loaded or loading
+    /// All chunks in the `LoadArea` are loaded or loading
     Clean,
-    /// The `Area` is new or just moved; chunks require loading and unloading
+    /// The `LoadArea` is new or just moved; chunks require loading and unloading
     Dirty,
 }
 

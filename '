@@ -1,0 +1,143 @@
+use glam::{IVec3, Quat, UVec3, Vec3, Vec4};
+
+use super::camera::Camera;
+use crate::{
+    terrain::{chunk::CHUNK_SIZE, position_types::ChunkPos},
+    util::size::Size3,
+};
+
+/// Manages frustum culling, performing culling first for large regions
+pub struct FrustumCullingRegions {
+    /// Position of the lower corner of the grid in chunks
+    grid_pos_in_chunks: IVec3,
+    /// Size of the grid of frustum culling regions on each axis
+    grid_size: Size3,
+    /// Size of a frustum culling region in chunks
+    region_size_in_chunks: Size3,
+    /// Whether each frustum culling region is visible
+    regions_visible: Vec<bool>,
+    projection_mul: Vec4,
+    projection_add: Vec4,
+    view_translation: Vec3,
+    view_rotation_inverse: Quat,
+}
+
+impl FrustumCullingRegions {
+    pub fn new(grid_size: Size3, region_size_in_chunks: Size3) -> Self {
+        Self {
+            grid_pos_in_chunks: IVec3::ZERO,
+            grid_size,
+            region_size_in_chunks,
+            regions_visible: vec![false; grid_size.product()],
+            projection_mul: Vec4::ZERO,
+            view_translation: Vec3::ZERO,
+            view_rotation_inverse: Quat::IDENTITY,
+        }
+    }
+
+    /// Called once per frame to update the frustum culling regions
+    pub fn update(&mut self, camera: &Camera) {
+        // update view-projection transformation
+        let projection_matrix = camera.projection_matrix();
+        self.projection_mul = Vec4::new(
+            projection_matrix.x_axis.x,
+            projection_matrix.y_axis.y,
+            projection_matrix.z_axis.z,
+            projection_matrix.z_axis.w,
+        );
+        self.view_translation = camera.transform.translation;
+        self.view_rotation_inverse = camera.transform.rotation.inverse();
+
+        // update the grid position
+        let grid_center = self
+            .view_translation
+            .div_euclid(Vec3::splat(CHUNK_SIZE as f32))
+            .as_ivec3();
+        self.grid_pos_in_chunks = grid_center - self.region_size_in_chunks.as_ivec3() / 2;
+
+        // perform frustum test for each region
+        for (x, y, z) in itertools::iproduct!(
+            0..self.grid_size.x as i32,
+            0..self.grid_size.y as i32,
+            0..self.grid_size.z as i32,
+        ) {
+            let position_in_grid = UVec3::new(x as u32, y as u32, z as u32);
+
+            let region_index = self.grid_size.flatten(position_in_grid);
+
+            let aabb_min = Vec3::splat(CHUNK_SIZE as f32)
+                * (self.grid_pos_in_chunks
+                    + IVec3::new(x, y, z) * self.region_size_in_chunks.as_ivec3())
+                .as_vec3();
+            let aabb_size = (self.region_size_in_chunks * Size3::splat(CHUNK_SIZE)).as_vec3();
+
+            self.regions_visible[region_index] = aabb_frustum_test(
+                self.view_rotation_inverse,
+                self.view_translation,
+                self.projection_mul,
+                aabb_min,
+                aabb_size,
+            );
+
+            if self.regions_visible[region_index] {
+                log::info!("OOO {:?}", position_in_grid);
+            }
+        }
+    }
+
+    /// True if the given chunk position is within the view frustum
+    pub fn is_chunk_within_frustum(&self, chunk_pos: &ChunkPos) -> bool {
+        let position_in_grid = chunk_pos
+            .as_ivec3()
+            .div_euclid(self.region_size_in_chunks.as_ivec3())
+            - self.grid_pos_in_chunks;
+
+        if self
+            .grid_size
+            .contains_ivec3(position_in_grid)
+        {
+            // check large frustum culling region first, to skip many frustum tests
+            let region_index = self
+                .grid_size
+                .flatten(position_in_grid.as_uvec3());
+
+            if !self.regions_visible[region_index] {
+                return false;
+            }
+        }
+
+        let aabb_size = Vec3::splat(CHUNK_SIZE as f32);
+        let aabb_min = chunk_pos.as_vec3() * aabb_size;
+
+        // region is visible (or doesn't exist)
+        aabb_frustum_test(
+            self.view_rotation_inverse,
+            self.view_translation,
+            self.projection_mul,
+            aabb_min,
+            aabb_size,
+        )
+    }
+}
+
+pub fn aabb_frustum_test(
+    view_rotation_inverse: Quat,
+    view_translation: Vec3,
+    projection_scale: Vec4,
+    aabb_min: Vec3,
+    aabb_size: Vec3,
+) -> bool {
+    (0..8).any(|corner_index| {
+        let x = (corner_index & 1) >> 0;
+        let y = (corner_index & 2) >> 1;
+        let z = (corner_index & 4) >> 2;
+
+        let world_pos = aabb_min + aabb_size * Vec3::new(x as f32, y as f32, z as f32);
+        let view_pos = view_rotation_inverse.mul_vec3(world_pos - view_translation);
+        let clip_pos = projection_scale * Vec4::new(view_pos.x, view_pos.y, view_pos.z, view_pos.z);
+
+        (-clip_pos.w..=clip_pos.w).contains(&clip_pos.x)
+            && (-clip_pos.w..=clip_pos.w).contains(&clip_pos.y)
+            && (0.0..=clip_pos.w).contains(&clip_pos.z)
+    })
+}

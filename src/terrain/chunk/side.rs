@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use crate::{block::BLOCKS, terrain::position_types::LocalBlockPos, util::face_index::FaceIndex};
-
 use super::{Chunk, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32};
+use crate::{block::BLOCKS, terrain::position_types::LocalBlockPos, util::face_index::FaceIndex};
 
 /// Represents a side of a chunk, storing whether each tile is solid (false) or empty (true).
 /// The tiles are indexed as follows:

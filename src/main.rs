@@ -2,11 +2,10 @@ use std::sync::Arc;
 
 use fly_camera::FlyCamera;
 use generational_arena::Index;
-use glam::IVec3;
 use input::Input;
-use render::{context::RenderContext, RenderEngine};
+use render::{render_context::RenderContext, render_engine::RenderEngine};
 use tasks::Tasks;
-use terrain::{area::Area, chunk::CHUNK_SIZE, position_types::ChunkPos, Terrain};
+use terrain::{chunk::CHUNK_SIZE, load_area::LoadArea, position_types::ChunkPos, Terrain};
 use time::{TargetFrameRate, Time};
 use util::size::Size3;
 use winit::{
@@ -15,7 +14,6 @@ use winit::{
     error::EventLoopError,
     event::{DeviceEvent, DeviceId, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-    keyboard::KeyCode,
     window::{Window, WindowId},
 };
 
@@ -48,13 +46,12 @@ struct State {
     time: Time,
     input: Input,
     tasks: Tasks,
-    render_engine: RenderEngine,
     terrain: Terrain,
-    area_index: Index,
+    load_area_index: Index,
+    render_engine: RenderEngine,
     fly_camera: FlyCamera,
     fly_camera_active: bool,
     close_requested: bool,
-    use_cave_culling: bool,
 }
 
 impl State {
@@ -63,15 +60,23 @@ impl State {
         let input = Input::new();
         let time = Time::new(TargetFrameRate::UnlimitedOrVsync);
         let tasks = Tasks::new(TASKS_WORKER_THREAD_COUNT);
-        let render_engine = RenderEngine::new(&render_context);
         let mut terrain = Terrain::new();
         let fly_camera = FlyCamera::default();
 
-        let area_index = terrain.areas_mut().insert(Area::new(
-            ChunkPos::ZERO,
-            Size3::new(40, 8, 40),
-            terrain::area::AreaShape::Cubic,
-        ));
+        let load_area_index = terrain
+            .load_areas_mut()
+            .insert(LoadArea::new(
+                ChunkPos::ZERO,
+                Size3::new(40, 8, 40),
+                terrain::load_area::AreaShape::Cubic,
+            ));
+        let render_engine = RenderEngine::new(
+            &render_context,
+            terrain
+                .load_areas()
+                .get(load_area_index)
+                .unwrap(),
+        );
 
         Self {
             window,
@@ -80,12 +85,11 @@ impl State {
             time,
             tasks,
             terrain,
-            area_index,
+            load_area_index,
             render_engine,
             fly_camera,
             fly_camera_active: true,
             close_requested: false,
-            use_cave_culling: false,
         }
     }
 
@@ -119,18 +123,11 @@ impl State {
         self.render_engine
             .camera_mut()
             .transform = self.fly_camera.get_transform();
-        self.terrain.areas_mut()[self.area_index]
+        self.terrain.load_areas_mut()[self.load_area_index]
             .set_center(self.fly_camera.position / (CHUNK_SIZE as f32));
 
         self.terrain.clear_events();
         self.terrain.update(&mut self.tasks);
-
-        if self
-            .input
-            .is_key_just_pressed(KeyCode::KeyC)
-        {
-            self.use_cave_culling = !self.use_cave_culling;
-        }
 
         self.input.reset();
     }
@@ -150,8 +147,8 @@ impl State {
 
         let loaded_area = self
             .terrain
-            .areas()
-            .get(self.area_index)
+            .load_areas()
+            .get(self.load_area_index)
             .unwrap();
 
         self.render_engine.render(
@@ -160,7 +157,6 @@ impl State {
             &mut self.tasks,
             &self.terrain,
             loaded_area,
-            self.use_cave_culling,
         );
 
         surface_texture.present();

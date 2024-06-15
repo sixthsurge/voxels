@@ -3,7 +3,6 @@ use std::sync::Arc;
 use itertools::Itertools;
 
 use self::visibility_graph::VisibilityGraph;
-
 use super::position_types::{ChunkPos, LocalBlockPos};
 use crate::{
     block::{BlockId, BLOCK_AIR},

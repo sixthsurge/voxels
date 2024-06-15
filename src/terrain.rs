@@ -5,21 +5,20 @@ use glam::Vec3;
 use itertools::Itertools;
 use rustc_hash::FxHashSet;
 
+use self::{
+    chunk::Chunk,
+    event::TerrainEvent,
+    load_area::{AreaStatus, LoadArea},
+    position_types::ChunkPos,
+};
 use crate::{
     tasks::{TaskPriority, Tasks},
     CHUNK_LOADING_PRIORITY,
 };
 
-use self::{
-    area::{Area, AreaStatus},
-    chunk::Chunk,
-    event::TerrainEvent,
-    position_types::ChunkPos,
-};
-
-pub mod area;
 pub mod chunk;
 pub mod event;
+pub mod load_area;
 pub mod position_types;
 
 mod temporary_generation;
@@ -31,7 +30,7 @@ pub struct Terrain {
     /// Generational arena of loaded chunks
     chunks: Arena<Chunk>,
     /// Areas around which chunks are loaded
-    areas: Arena<Area>,
+    load_areas: Arena<LoadArea>,
     /// Terrain events
     events: Vec<TerrainEvent>,
     /// Set of positions of chunks that are currently loading
@@ -48,7 +47,7 @@ impl Terrain {
 
         Self {
             chunks: Arena::new(),
-            areas: Arena::new(),
+            load_areas: Arena::new(),
             events: Vec::new(),
             loading_chunk_positions: FxHashSet::default(),
             loaded_chunk_tx,
@@ -65,13 +64,13 @@ impl Terrain {
 
         // check chunks to load
         let mut load_queue = Vec::new();
-        for (_, area) in &self.areas {
+        for (_, area) in &self.load_areas {
             match area.status() {
                 AreaStatus::Clean => (),
                 AreaStatus::Dirty => {
                     for chunk_pos in area.iter_positions() {
                         let chunk_loaded = self
-                            .areas
+                            .load_areas
                             .iter()
                             .any(|(_, area)| area.has_chunk_index(&chunk_pos));
                         let chunk_loading = self
@@ -89,14 +88,14 @@ impl Terrain {
             self.load_chunk(tasks, chunk_pos, area_center);
         }
 
-        for (_, area) in &mut self.areas {
+        for (_, area) in &mut self.load_areas {
             area.set_status(AreaStatus::Clean);
         }
 
         // check chunks to unload
         return;
         if self
-            .areas
+            .load_areas
             .iter()
             .any(|(_, area)| area.status().is_dirty())
         {
@@ -104,7 +103,7 @@ impl Terrain {
                 .chunks
                 .iter()
                 .filter(|(_, chunk)| {
-                    self.areas
+                    self.load_areas
                         .iter()
                         .any(|(_, area)| area.contains_pos(&chunk.pos()))
                 })
@@ -128,13 +127,13 @@ impl Terrain {
     }
 
     /// The arena of areas around which chunks are loaded
-    pub fn areas(&self) -> &Arena<Area> {
-        &self.areas
+    pub fn load_areas(&self) -> &Arena<LoadArea> {
+        &self.load_areas
     }
 
     /// Mutable reference to the arena of areas around which chunks are loaded
-    pub fn areas_mut(&mut self) -> &mut Arena<Area> {
-        &mut self.areas
+    pub fn load_areas_mut(&mut self) -> &mut Arena<LoadArea> {
+        &mut self.load_areas
     }
 
     /// Returns an iterator over all events that have occurred since the last call to
@@ -180,7 +179,7 @@ impl Terrain {
     fn finished_loading_chunk(&mut self, chunk: Chunk) {
         // make sure the chunk is still contained by an area
         if !self
-            .areas
+            .load_areas
             .iter()
             .any(|(_, area)| area.contains_pos(&chunk.pos()))
         {
@@ -190,7 +189,7 @@ impl Terrain {
         let chunk_pos = chunk.pos();
         let chunk_index = self.chunks.insert(chunk);
 
-        for (_, area) in &mut self.areas {
+        for (_, area) in &mut self.load_areas {
             if area.contains_pos(&chunk_pos) {
                 area.chunk_loaded(&chunk_pos, chunk_index);
             }

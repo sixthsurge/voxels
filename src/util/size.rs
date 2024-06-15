@@ -1,14 +1,18 @@
-use derive_more::{Add, Div, Mul, Sub};
+use std::ops::{Add, Div, Mul, Sub};
+
 use glam::{IVec2, IVec3, UVec2, UVec3, Vec2, Vec3};
 
 /// Size of a 2D grid
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Add, Sub, Mul, Div)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Size2 {
     pub x: usize,
     pub y: usize,
 }
 
 impl Size2 {
+    pub const ZERO: Self = Self::splat(0);
+    pub const ONE: Self = Self::splat(1);
+
     pub const fn new(x: usize, y: usize) -> Self {
         Self { x, y }
     }
@@ -42,6 +46,50 @@ impl Size2 {
     }
 }
 
+impl Add for Size2 {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl Sub for Size2 {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl Mul for Size2 {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x * rhs.x,
+            y: self.y * rhs.y,
+        }
+    }
+}
+
+impl Div for Size2 {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x / rhs.x,
+            y: self.y / rhs.y,
+        }
+    }
+}
+
 pub trait AsSize2 {
     fn as_size2(&self) -> Size2;
 }
@@ -65,7 +113,7 @@ impl AsSize2 for IVec2 {
 }
 
 /// Size of a 3D grid
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Add, Sub, Mul, Div)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Size3 {
     pub x: usize,
     pub y: usize,
@@ -73,6 +121,9 @@ pub struct Size3 {
 }
 
 impl Size3 {
+    pub const ZERO: Self = Self::splat(0);
+    pub const ONE: Self = Self::splat(1);
+
     pub const fn new(x: usize, y: usize, z: usize) -> Self {
         Self { x, y, z }
     }
@@ -109,13 +160,23 @@ impl Size3 {
         let z = pos.z as usize;
         self.x * (self.y * z + y) + x
     }
-}
 
-pub trait AsSize3 {
-    fn as_size3(&self) -> Size3;
-}
+    /// True if `v` is contained in a grid of this size
+    pub const fn contains_uvec3(&self, v: UVec3) -> bool {
+        v.x < self.x as u32 && v.y < self.y as u32 && v.z < self.z as u32
+    }
 
-impl AsSize3 for UVec3 {
+    /// True if `v` is contained in a grid of this size
+    pub const fn contains_ivec3(&self, v: IVec3) -> bool {
+        v.x >= 0
+            && v.y >= 0
+            && v.z >= 0
+            && v.x < self.x as i32
+            && v.y < self.y as i32
+            && v.z < self.z as i32
+    }
+}
+impl AsSize3 for IVec3 {
     fn as_size3(&self) -> Size3 {
         Size3 {
             x: self.x as usize,
@@ -125,7 +186,59 @@ impl AsSize3 for UVec3 {
     }
 }
 
-impl AsSize3 for IVec3 {
+impl Add for Size3 {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            z: self.z + rhs.z,
+        }
+    }
+}
+
+impl Sub for Size3 {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+            z: self.z - rhs.z,
+        }
+    }
+}
+
+impl Mul for Size3 {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x * rhs.x,
+            y: self.y * rhs.y,
+            z: self.z * rhs.z,
+        }
+    }
+}
+
+impl Div for Size3 {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x / rhs.x,
+            y: self.y / rhs.y,
+            z: self.z / rhs.z,
+        }
+    }
+}
+
+pub trait AsSize3 {
+    fn as_size3(&self) -> Size3;
+}
+
+impl AsSize3 for UVec3 {
     fn as_size3(&self) -> Size3 {
         Size3 {
             x: self.x as usize,
