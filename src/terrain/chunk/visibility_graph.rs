@@ -8,7 +8,7 @@ use crate::{
         chunk::{CHUNK_SIZE_CUBED, CHUNK_SIZE_U32},
         position_types::LocalBlockPos,
     },
-    util::face_index::{FaceIndex, FACE_NORMALS},
+    util::face::{FaceIndex, FACE_NORMALS},
 };
 
 /// "Visibility graph" from https://tomcc.github.io/2014/08/31/visibility-1.html

@@ -11,7 +11,7 @@ use super::{
 use crate::{
     tasks::Tasks,
     terrain::{load_area::LoadArea, Terrain},
-    util::{measure_time::measure_time, size::Size3, transform::Transform, DEGREE},
+    util::{size::Size3, transform::Transform, DEGREE},
 };
 
 pub struct RenderEngine {
@@ -104,12 +104,11 @@ impl RenderEngine {
     ) {
         let view_matrix = self.camera.view_matrix();
         let proj_matrix = self.camera.projection_matrix();
-        let view_proj_matrix = proj_matrix;
+        let view_proj_matrix = proj_matrix * view_matrix;
 
         // update frustum culling regions
-        measure_time!(self
-            .frustum_culling_regions
-            .update(&view_proj_matrix, self.camera.pos()));
+        self.frustum_culling_regions
+            .update(&view_proj_matrix, self.camera.pos());
 
         // update common uniforms
         self.common_uniforms.camera_view_matrix = view_matrix.to_cols_array();

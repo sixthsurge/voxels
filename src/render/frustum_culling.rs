@@ -1,11 +1,13 @@
-use glam::{IVec3, Mat4, UVec3, Vec3, Vec4};
+use glam::{IVec3, Mat4, UVec3, Vec3};
 
 use crate::{
     terrain::{chunk::CHUNK_SIZE, position_types::ChunkPos},
     util::size::Size3,
 };
 
-/// Manages frustum culling, performing culling first for large regions
+/// Manages frustum culling, dividing the world into large regions which are culled first so that
+/// individual objects only need to be tested against the frustum if the region they fall into is
+/// visible
 pub struct FrustumCullingRegions {
     view_frustum: Frustum,
     grid_pos_in_chunks: IVec3,
@@ -26,9 +28,9 @@ impl FrustumCullingRegions {
     }
 
     /// Called once per frame to update the frustum culling regions
-    pub fn update(&mut self, view_projection_matrix: &Mat4, camera_pos: Vec3) {
+    pub fn update(&mut self, view_proj_matrix: &Mat4, camera_pos: Vec3) {
         // update view frustum
-        self.view_frustum = Frustum::compute_view_frustum(view_projection_matrix);
+        self.view_frustum = Frustum::compute_view_frustum(view_proj_matrix);
 
         // update the grid position
         let grid_center = camera_pos
@@ -100,45 +102,45 @@ pub struct Frustum {
 
 impl Frustum {
     /// Find the view frustum from the view-projection matrix using the Gribb-Hartmann method
-    pub fn compute_view_frustum(view_projection_matrix: &Mat4) -> Self {
+    pub fn compute_view_frustum(view_proj_matrix: &Mat4) -> Self {
         // https://www.gamedevs.org/uploads/fast-extraction-viewing-frustum-planes-from-world-view-projection-matrix.pdf
 
         Self {
             left: FrustumPlane {
-                a: view_projection_matrix.x_axis.w + view_projection_matrix.x_axis.x,
-                b: view_projection_matrix.y_axis.w + view_projection_matrix.y_axis.x,
-                c: view_projection_matrix.z_axis.w + view_projection_matrix.z_axis.x,
-                d: view_projection_matrix.w_axis.w + view_projection_matrix.w_axis.x,
+                a: view_proj_matrix.x_axis.w + view_proj_matrix.x_axis.x,
+                b: view_proj_matrix.y_axis.w + view_proj_matrix.y_axis.x,
+                c: view_proj_matrix.z_axis.w + view_proj_matrix.z_axis.x,
+                d: view_proj_matrix.w_axis.w + view_proj_matrix.w_axis.x,
             },
             right: FrustumPlane {
-                a: view_projection_matrix.x_axis.w - view_projection_matrix.x_axis.x,
-                b: view_projection_matrix.y_axis.w - view_projection_matrix.y_axis.x,
-                c: view_projection_matrix.z_axis.w - view_projection_matrix.z_axis.x,
-                d: view_projection_matrix.w_axis.w - view_projection_matrix.w_axis.x,
+                a: view_proj_matrix.x_axis.w - view_proj_matrix.x_axis.x,
+                b: view_proj_matrix.y_axis.w - view_proj_matrix.y_axis.x,
+                c: view_proj_matrix.z_axis.w - view_proj_matrix.z_axis.x,
+                d: view_proj_matrix.w_axis.w - view_proj_matrix.w_axis.x,
             },
             bottom: FrustumPlane {
-                a: view_projection_matrix.x_axis.w + view_projection_matrix.x_axis.y,
-                b: view_projection_matrix.y_axis.w + view_projection_matrix.y_axis.y,
-                c: view_projection_matrix.z_axis.w + view_projection_matrix.z_axis.y,
-                d: view_projection_matrix.w_axis.w + view_projection_matrix.w_axis.y,
+                a: view_proj_matrix.x_axis.w + view_proj_matrix.x_axis.y,
+                b: view_proj_matrix.y_axis.w + view_proj_matrix.y_axis.y,
+                c: view_proj_matrix.z_axis.w + view_proj_matrix.z_axis.y,
+                d: view_proj_matrix.w_axis.w + view_proj_matrix.w_axis.y,
             },
             top: FrustumPlane {
-                a: view_projection_matrix.x_axis.w - view_projection_matrix.x_axis.y,
-                b: view_projection_matrix.y_axis.w - view_projection_matrix.y_axis.y,
-                c: view_projection_matrix.z_axis.w - view_projection_matrix.z_axis.y,
-                d: view_projection_matrix.w_axis.w - view_projection_matrix.w_axis.y,
+                a: view_proj_matrix.x_axis.w - view_proj_matrix.x_axis.y,
+                b: view_proj_matrix.y_axis.w - view_proj_matrix.y_axis.y,
+                c: view_proj_matrix.z_axis.w - view_proj_matrix.z_axis.y,
+                d: view_proj_matrix.w_axis.w - view_proj_matrix.w_axis.y,
             },
             near: FrustumPlane {
-                a: view_projection_matrix.x_axis.z,
-                b: view_projection_matrix.y_axis.z,
-                c: view_projection_matrix.z_axis.z,
-                d: view_projection_matrix.w_axis.z,
+                a: view_proj_matrix.x_axis.z,
+                b: view_proj_matrix.y_axis.z,
+                c: view_proj_matrix.z_axis.z,
+                d: view_proj_matrix.w_axis.z,
             },
             far: FrustumPlane {
-                a: view_projection_matrix.x_axis.w - view_projection_matrix.x_axis.z,
-                b: view_projection_matrix.y_axis.w - view_projection_matrix.y_axis.z,
-                c: view_projection_matrix.z_axis.w - view_projection_matrix.z_axis.z,
-                d: view_projection_matrix.w_axis.w - view_projection_matrix.w_axis.z,
+                a: view_proj_matrix.x_axis.w - view_proj_matrix.x_axis.z,
+                b: view_proj_matrix.y_axis.w - view_proj_matrix.y_axis.z,
+                c: view_proj_matrix.z_axis.w - view_proj_matrix.z_axis.z,
+                d: view_proj_matrix.w_axis.w - view_proj_matrix.w_axis.z,
             },
         }
     }
@@ -148,22 +150,22 @@ impl Frustum {
     /// aabb_extent: half the size of the AABB
     pub fn intersects_aabb(&self, aabb_center: &Vec3, aabb_extent: &Vec3) -> bool {
         // https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
-        if !is_on_or_in_front_of_plane(aabb_center, aabb_extent, &self.right) {
+        if !aabb_plane_test(aabb_center, aabb_extent, &self.right) {
             return false;
         }
-        if !is_on_or_in_front_of_plane(aabb_center, aabb_extent, &self.left) {
+        if !aabb_plane_test(aabb_center, aabb_extent, &self.left) {
             return false;
         }
-        if !is_on_or_in_front_of_plane(aabb_center, aabb_extent, &self.bottom) {
+        if !aabb_plane_test(aabb_center, aabb_extent, &self.bottom) {
             return false;
         }
-        if !is_on_or_in_front_of_plane(aabb_center, aabb_extent, &self.top) {
+        if !aabb_plane_test(aabb_center, aabb_extent, &self.top) {
             return false;
         }
-        if !is_on_or_in_front_of_plane(aabb_center, aabb_extent, &self.near) {
+        if !aabb_plane_test(aabb_center, aabb_extent, &self.near) {
             return false;
         }
-        if !is_on_or_in_front_of_plane(aabb_center, aabb_extent, &self.far) {
+        if !aabb_plane_test(aabb_center, aabb_extent, &self.far) {
             return false;
         }
 
@@ -180,17 +182,15 @@ pub struct FrustumPlane {
     pub d: f32,
 }
 
-fn is_on_or_in_front_of_plane(
-    aabb_center: &Vec3,
-    aabb_extent: &Vec3,
-    plane: &FrustumPlane,
-) -> bool {
+/// True if the AABB defined by `aabb_center` and `aabb_extent` is touching or in front of the
+/// frustum plane
+fn aabb_plane_test(aabb_center: &Vec3, aabb_extent: &Vec3, plane: &FrustumPlane) -> bool {
     let r = aabb_extent.x * plane.a.abs()
         + aabb_extent.y * plane.b.abs()
         + aabb_extent.z * plane.c.abs();
-    -r <= signed_distance_to_plane(aabb_center, plane)
+    -r <= plane_distance(aabb_center, plane)
 }
 
-fn signed_distance_to_plane(point: &Vec3, plane: &FrustumPlane) -> f32 {
+fn plane_distance(point: &Vec3, plane: &FrustumPlane) -> f32 {
     plane.a * point.x + plane.b * point.y + plane.c * point.z + plane.d
 }

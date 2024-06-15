@@ -1,12 +1,13 @@
 use glam::{UVec2, UVec3, Vec2, Vec3};
 
-use super::{
-    face::{FaceDir, NegX, NegY, NegZ, PosX, PosY, PosZ},
-    vertex::TerrainVertex,
-};
+use self::face_dir::*;
+use super::vertex::TerrainVertex;
 use crate::{
     block::{model::BlockFace, BlockId, BLOCKS},
-    terrain::chunk::{side::ChunkSide, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
+    terrain::{
+        chunk::{side::ChunkSide, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
+        position_types::LocalBlockPos,
+    },
 };
 
 /// Data about a chunk needed to generate its mesh
@@ -69,8 +70,13 @@ where
 
 /// Add a single axis-aligned face to the mesh
 /// `origin` is the position of the cell with the smallest coordinates that this face covers
-fn add_face<Dir>(vertices: &mut Vec<TerrainVertex>, origin: Vec3, size: Vec2, texture_index: usize)
-where
+fn add_face<Dir>(
+    vertices: &mut Vec<TerrainVertex>,
+    origin: Vec3,
+    size: Vec2,
+    texture_index: usize,
+    light: [f32; 4],
+) where
     Dir: FaceDir,
 {
     let uvs = [[0.0, size.y], [size.x, size.y], [size.x, 0.0], [0.0, 0.0]];
@@ -83,7 +89,7 @@ where
                 position: (origin + *vertex_offset).to_array(),
                 uv: uvs[i],
                 texture_index: texture_index as u32,
-                shading: Dir::SHADING,
+                shading: Dir::SHADING * light[Dir::LIGHT_INDICES[i]],
             }),
     );
 }
@@ -119,11 +125,17 @@ where
                 let face = block_model.face(Dir::FACE_INDEX);
                 if let Some(face) = face {
                     if visible {
+                        let light = interpolate_light_for_face::<Dir>(
+                            LocalBlockPos::from(pos_in_chunk),
+                            input.blocks,
+                        );
+
                         add_face::<Dir>(
                             vertices,
                             pos_in_chunk.as_vec3() + input.translation,
                             Vec2::ONE,
                             face.texture_index,
+                            light,
                         );
                     }
                 }
@@ -321,10 +333,86 @@ where
                     original_pos.as_vec3() + input.translation,
                     face_size.as_vec2(),
                     original_face.texture_index,
+                    [1.0; 4],
                 );
             }
         }
     }
+}
+
+/// future: Interpolate the light values for each vertex of the given face
+/// now: just interpolate whether each block is not air, for AO
+/// once there is floodfill lighting, this will interpolate that instead
+pub fn interpolate_light_for_face<Dir>(block_pos: LocalBlockPos, blocks: &[BlockId]) -> [f32; 4]
+where
+    Dir: FaceDir,
+{
+    fn sample_block_at(block_pos: Option<LocalBlockPos>, blocks: &[BlockId]) -> f32 {
+        if let Some(block_pos) = block_pos {
+            let is_air = blocks[block_pos.as_array_index()] == BlockId(0);
+            if is_air {
+                0.25
+            } else {
+                0.0
+            }
+        } else {
+            0.25
+        }
+    }
+
+    // read the 9x9 neighbourhood of blocks in front of the face
+    #[rustfmt::skip]
+    let samples = [
+        [
+            sample_block_at(
+                block_pos.try_add(Dir::NORMAL - Dir::TANGENT - Dir::BITANGENT),
+                blocks,
+            ),
+            sample_block_at(
+                block_pos.try_add(Dir::NORMAL - Dir::TANGENT),
+                blocks
+            ),
+            sample_block_at(
+                block_pos.try_add(Dir::NORMAL - Dir::TANGENT + Dir::BITANGENT),
+                blocks,
+            ),
+        ],
+        [
+            sample_block_at(
+                block_pos.try_add(Dir::NORMAL - Dir::BITANGENT),
+                blocks,
+            ),
+            sample_block_at(
+                block_pos.try_add(Dir::NORMAL),
+                blocks
+            ),
+            sample_block_at(
+                block_pos.try_add(Dir::NORMAL + Dir::BITANGENT),
+                blocks,
+            ),
+        ],
+        [
+            sample_block_at(
+                block_pos.try_add(Dir::NORMAL + Dir::TANGENT - Dir::BITANGENT),
+                blocks,
+            ),
+            sample_block_at(
+                block_pos.try_add(Dir::NORMAL + Dir::TANGENT),
+                blocks
+            ),
+            sample_block_at(
+                block_pos.try_add(Dir::NORMAL + Dir::TANGENT + Dir::BITANGENT),
+                blocks,
+            ),
+        ],
+    ];
+
+    [
+        samples[0][0] + samples[0][1] + samples[1][0] + samples[1][1],
+        samples[0][1] + samples[0][2] + samples[1][1] + samples[1][2],
+        samples[1][0] + samples[1][1] + samples[2][0] + samples[2][1],
+        samples[1][1] + samples[1][2] + samples[2][1] + samples[2][2],
+    ]
 }
 
 /// Generate indices for the meshes returned by `mesh_culled` and `mesh_greedy`
@@ -349,4 +437,245 @@ pub fn generate_indices(vertex_count: usize) -> Vec<u32> {
 
 fn uvec3_to_chunk_index(pos: UVec3) -> usize {
     ((CHUNK_SIZE_U32 * CHUNK_SIZE_U32) * pos.z + CHUNK_SIZE_U32 * pos.y + pos.x) as usize
+}
+
+mod face_dir {
+    use glam::{IVec3, UVec3, Vec2, Vec3, Vec3Swizzles};
+
+    use crate::util::face::FaceIndex;
+
+    /// Information about each face direction needed for meshing
+    pub trait FaceDir {
+        /// Direction parallel to the first texture coordinate
+        const TANGENT: IVec3;
+
+        /// Direction parallel to the second texture coordinate
+        const BITANGENT: IVec3;
+
+        /// Direction pointing away from the face
+        const NORMAL: IVec3;
+
+        /// `FaceIndex` matching this face direction
+        const FACE_INDEX: FaceIndex;
+
+        /// `FaceIndex` matching the opposite face direction
+        const OPPOSITE_FACE_INDEX: FaceIndex;
+
+        /// Whether this face direction points away from its axis
+        const NEGATIVE: bool;
+
+        /// Hardcoded directional shading for this face
+        const SHADING: f32;
+
+        /// Which of the interpolated light values corresponds to each vertex
+        const LIGHT_INDICES: [usize; 4];
+
+        /// Returns the 4 vertices for a face pointing in this direction
+        /// * `size`: The size of the face on the two perpendicular directions
+        /// When looking at the face head on, the first vertex is at the bottom left and the
+        /// following vertices proceed anticlockwise
+        fn vertices(size: Vec2) -> [Vec3; 4];
+
+        /// Given a vector whose x and y components are specified parallel to the face and whose z
+        /// component is specified perpendicular to the face, converts it to absolute coordinates
+        /// by swizzling
+        /// rotate_vec3(Vec3::new(0.0, 0.0, 1.0)) gives the axis of the face
+        /// rotate_vec3(Vec3::new(1.0, 0.0, 0.0)) gives a tangent of the face
+        /// rotate_vec3(Vec3::new(0.0, 1.0, 0.0)) gives another tangent of the face
+        fn rotate_vec3(v: Vec3) -> Vec3;
+
+        /// Given a vector whose x and y components are specified parallel to the face and whose z
+        /// component is specified perpendicular to the face, converts it to absolute coordinates by
+        /// swizzling
+        /// rotate_uvec3(UVec3::new(0, 0, 1)) gives the axis of the face
+        /// rotate_uvec3(UVec3::new(1, 0, 0)) gives a tangent of the face
+        /// rotate_uvec3(UVec3::new(0, 1, 0)) gives another tangent of the face
+        fn rotate_uvec3(v: UVec3) -> UVec3;
+    }
+
+    /// +x
+    pub struct PosX;
+
+    impl FaceDir for PosX {
+        const TANGENT: IVec3 = IVec3::Z;
+        const BITANGENT: IVec3 = IVec3::Y;
+        const NORMAL: IVec3 = IVec3::X;
+        const FACE_INDEX: FaceIndex = FaceIndex::POS_X;
+        const OPPOSITE_FACE_INDEX: FaceIndex = FaceIndex::NEG_X;
+        const NEGATIVE: bool = false;
+        const SHADING: f32 = 0.7;
+        const LIGHT_INDICES: [usize; 4] = [2, 0, 1, 3];
+
+        fn vertices(size: Vec2) -> [Vec3; 4] {
+            [
+                Vec3::new(1.0, 0.0, size.x),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(1.0, size.y, 0.0),
+                Vec3::new(1.0, size.y, size.x),
+            ]
+        }
+
+        fn rotate_vec3(v: Vec3) -> Vec3 {
+            v.zyx()
+        }
+
+        fn rotate_uvec3(v: UVec3) -> UVec3 {
+            v.zyx()
+        }
+    }
+
+    /// +y
+    pub struct PosY;
+
+    impl FaceDir for PosY {
+        const TANGENT: IVec3 = IVec3::Z;
+        const BITANGENT: IVec3 = IVec3::X;
+        const NORMAL: IVec3 = IVec3::Y;
+        const FACE_INDEX: FaceIndex = FaceIndex::POS_Y;
+        const OPPOSITE_FACE_INDEX: FaceIndex = FaceIndex::NEG_Y;
+        const NEGATIVE: bool = false;
+        const SHADING: f32 = 1.0;
+        const LIGHT_INDICES: [usize; 4] = [0, 2, 3, 1];
+
+        fn vertices(size: Vec2) -> [Vec3; 4] {
+            [
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(0.0, 1.0, size.x),
+                Vec3::new(size.y, 1.0, size.x),
+                Vec3::new(size.y, 1.0, 0.0),
+            ]
+        }
+
+        fn rotate_vec3(v: Vec3) -> Vec3 {
+            v.yzx()
+        }
+
+        fn rotate_uvec3(v: UVec3) -> UVec3 {
+            v.yzx()
+        }
+    }
+
+    /// +z
+    pub struct PosZ;
+
+    impl FaceDir for PosZ {
+        const NORMAL: IVec3 = IVec3::Z;
+        const TANGENT: IVec3 = IVec3::X;
+        const BITANGENT: IVec3 = IVec3::Y;
+        const FACE_INDEX: FaceIndex = FaceIndex::POS_Z;
+        const OPPOSITE_FACE_INDEX: FaceIndex = FaceIndex::NEG_Z;
+        const NEGATIVE: bool = false;
+        const SHADING: f32 = 0.8;
+        const LIGHT_INDICES: [usize; 4] = [0, 2, 3, 1];
+
+        fn vertices(size: Vec2) -> [Vec3; 4] {
+            [
+                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(size.x, 0.0, 1.0),
+                Vec3::new(size.x, size.y, 1.0),
+                Vec3::new(0.0, size.y, 1.0),
+            ]
+        }
+
+        fn rotate_vec3(v: Vec3) -> Vec3 {
+            v
+        }
+
+        fn rotate_uvec3(v: UVec3) -> UVec3 {
+            v
+        }
+    }
+
+    /// -x
+    pub struct NegX;
+
+    impl FaceDir for NegX {
+        const NORMAL: IVec3 = IVec3::NEG_X;
+        const TANGENT: IVec3 = IVec3::NEG_Z;
+        const BITANGENT: IVec3 = IVec3::NEG_Y;
+        const FACE_INDEX: FaceIndex = FaceIndex::NEG_X;
+        const OPPOSITE_FACE_INDEX: FaceIndex = FaceIndex::POS_X;
+        const NEGATIVE: bool = true;
+        const SHADING: f32 = 0.7;
+        const LIGHT_INDICES: [usize; 4] = [3, 1, 0, 2];
+
+        fn vertices(size: Vec2) -> [Vec3; 4] {
+            [
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(0.0, 0.0, size.x),
+                Vec3::new(0.0, size.y, size.x),
+                Vec3::new(0.0, size.y, 0.0),
+            ]
+        }
+
+        fn rotate_vec3(v: Vec3) -> Vec3 {
+            v.zyx()
+        }
+
+        fn rotate_uvec3(v: UVec3) -> UVec3 {
+            v.zyx()
+        }
+    }
+
+    /// -y
+    pub struct NegY;
+
+    impl FaceDir for NegY {
+        const NORMAL: IVec3 = IVec3::NEG_Y;
+        const TANGENT: IVec3 = IVec3::NEG_Z;
+        const BITANGENT: IVec3 = IVec3::NEG_X;
+        const FACE_INDEX: FaceIndex = FaceIndex::NEG_Y;
+        const OPPOSITE_FACE_INDEX: FaceIndex = FaceIndex::POS_Y;
+        const NEGATIVE: bool = true;
+        const SHADING: f32 = 0.5;
+        const LIGHT_INDICES: [usize; 4] = [2, 0, 1, 3];
+
+        fn vertices(size: Vec2) -> [Vec3; 4] {
+            [
+                Vec3::new(size.y, 0.0, 0.0),
+                Vec3::new(size.y, 0.0, size.x),
+                Vec3::new(0.0, 0.0, size.x),
+                Vec3::new(0.0, 0.0, 0.0),
+            ]
+        }
+
+        fn rotate_vec3(v: Vec3) -> Vec3 {
+            v.yzx()
+        }
+
+        fn rotate_uvec3(v: UVec3) -> UVec3 {
+            v.yzx()
+        }
+    }
+
+    /// -z
+    pub struct NegZ;
+
+    impl FaceDir for NegZ {
+        const NORMAL: IVec3 = IVec3::NEG_Z;
+        const TANGENT: IVec3 = IVec3::NEG_X;
+        const BITANGENT: IVec3 = IVec3::NEG_Y;
+        const FACE_INDEX: FaceIndex = FaceIndex::NEG_Z;
+        const OPPOSITE_FACE_INDEX: FaceIndex = FaceIndex::POS_Z;
+        const NEGATIVE: bool = true;
+        const SHADING: f32 = 0.6;
+        const LIGHT_INDICES: [usize; 4] = [1, 3, 2, 0];
+
+        fn vertices(size: Vec2) -> [Vec3; 4] {
+            [
+                Vec3::new(size.x, 0.0, 0.0),
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(0.0, size.y, 0.0),
+                Vec3::new(size.x, size.y, 0.0),
+            ]
+        }
+
+        fn rotate_vec3(v: Vec3) -> Vec3 {
+            v
+        }
+
+        fn rotate_uvec3(v: UVec3) -> UVec3 {
+            v
+        }
+    }
 }

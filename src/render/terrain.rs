@@ -36,7 +36,6 @@ use crate::{
     CHUNK_MESH_GENERATION_PRIORITY, CHUNK_MESH_OPTIMIZATION_PRIORITY,
 };
 
-mod face;
 mod meshing;
 mod render_groups;
 mod vertex;
@@ -481,7 +480,7 @@ impl TerrainRenderer {
                     .rem_euclid(IVec3::splat(RENDER_GROUP_SIZE as i32))
                     * CHUNK_SIZE_I32;
 
-                let vertices = meshing::mesh_greedy(ChunkMeshInput {
+                let vertices = meshing::mesh_culled(ChunkMeshInput {
                     blocks: &blocks,
                     translation: translation.as_vec3(), // eventually this will be an IVec3
                     surrounding_sides: &surrounding_sides,

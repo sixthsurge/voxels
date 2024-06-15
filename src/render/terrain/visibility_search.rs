@@ -9,7 +9,7 @@ use crate::{
         position_types::ChunkPos,
         Terrain,
     },
-    util::face_index::{FaceIndex, FACE_NORMALS},
+    util::face::{FaceIndex, FACE_NORMALS},
 };
 
 /// Cave-culling search based on https://tomcc.github.io/2014/08/31/visibility-2.html.

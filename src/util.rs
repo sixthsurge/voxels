@@ -1,4 +1,4 @@
-pub mod face_index;
+pub mod face;
 pub mod measure_time;
 pub mod size;
 pub mod transform;

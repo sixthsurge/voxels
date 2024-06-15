@@ -1,4 +1,4 @@
-use crate::util::face_index::FaceIndex;
+use crate::util::face::FaceIndex;
 
 #[derive(Clone, Debug)]
 pub enum BlockModel {
