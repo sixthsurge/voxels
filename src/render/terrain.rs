@@ -163,6 +163,7 @@ impl TerrainRenderer {
                 wgpu::ColorWrites::all(),
             )
             .with_depth(RenderEngine::DEPTH_FORMAT, RenderEngine::DEPTH_COMPARE)
+            //.with_polygon_mode(wgpu::PolygonMode::Line)
             .build(&cx.device);
 
         let (finished_mesh_tx, finished_mesh_rx) = mpsc::channel();
@@ -480,7 +481,7 @@ impl TerrainRenderer {
                     .rem_euclid(IVec3::splat(RENDER_GROUP_SIZE as i32))
                     * CHUNK_SIZE_I32;
 
-                let vertices = meshing::mesh_culled(ChunkMeshInput {
+                let vertices = meshing::mesh_greedy(ChunkMeshInput {
                     blocks: &blocks,
                     translation: translation.as_vec3(), // eventually this will be an IVec3
                     surrounding_sides: &surrounding_sides,

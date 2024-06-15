@@ -75,7 +75,7 @@ fn add_face<Dir>(
     origin: Vec3,
     size: Vec2,
     texture_index: usize,
-    light: [f32; 4],
+    light_data: FaceLightData,
 ) where
     Dir: FaceDir,
 {
@@ -89,7 +89,7 @@ fn add_face<Dir>(
                 position: (origin + *vertex_offset).to_array(),
                 uv: uvs[i],
                 texture_index: texture_index as u32,
-                shading: Dir::SHADING * light[Dir::LIGHT_INDICES[i]],
+                shading: Dir::SHADING * light_data.0[Dir::LIGHT_INDICES[i]],
             }),
     );
 }
@@ -125,7 +125,7 @@ where
                 let face = block_model.face(Dir::FACE_INDEX);
                 if let Some(face) = face {
                     if visible {
-                        let light = interpolate_light_for_face::<Dir>(
+                        let light_data = interpolate_light_for_face::<Dir>(
                             LocalBlockPos::from(pos_in_chunk),
                             input.blocks,
                         );
@@ -135,7 +135,7 @@ where
                             pos_in_chunk.as_vec3() + input.translation,
                             Vec2::ONE,
                             face.texture_index,
-                            light,
+                            light_data,
                         );
                     }
                 }
@@ -161,41 +161,6 @@ where
     //   U is the direction of the first texture coordinate
     //   V is the direction of the second texture coordinate
 
-    /// Evaluate whether the original face can be merged with the face with coordinates
-    /// `merge_candidate_u` and `merge_candidate_v` in the layer with position `layer_pos`
-    /// returns two booleans: whether the face can be merged, and whether the block with the
-    /// same U and V coordinates in the following layer is visible
-    fn consider_merge_candidate<Dir>(
-        blocks: &[BlockId],
-        visible: &[bool; CHUNK_SIZE_SQUARED],
-        layer_pos: u32,
-        original_face: BlockFace,
-        merge_candidate_u: u32,
-        merge_candidate_v: u32,
-    ) -> (bool, bool)
-    where
-        Dir: FaceDir,
-    {
-        let merge_candidate_pos = UVec3::new(merge_candidate_u, merge_candidate_v, layer_pos);
-        let merge_candidate_pos = Dir::rotate_uvec3(merge_candidate_pos);
-
-        let merge_candidate_index_in_layer =
-            (CHUNK_SIZE_U32 * merge_candidate_v + merge_candidate_u) as usize;
-
-        let merge_candidate_id = blocks[uvec3_to_chunk_index(merge_candidate_pos) as usize];
-        let merge_candidate_model = &BLOCKS[merge_candidate_id.0 as usize].model;
-        let merge_candidate_face = merge_candidate_model.face(Dir::FACE_INDEX);
-        let merge_candidate_visible = visible[merge_candidate_index_in_layer];
-
-        let can_merge = can_merge_faces::<Dir>(Some(original_face), merge_candidate_face)
-            && merge_candidate_visible;
-        let next_visible = merge_candidate_model
-            .face(Dir::OPPOSITE_FACE_INDEX)
-            .is_none();
-
-        (can_merge, next_visible)
-    }
-
     // this will track whether each face in the next layer is visible
     // a face is visible if the block in the previous layer had no face in
     // the opposite direction
@@ -220,6 +185,10 @@ where
         // already merged faces can safely be ignored
         let mut already_merged = [false; CHUNK_SIZE_SQUARED];
 
+        // this is used to cache the interpolated light data for faces, to avoid computing it twice
+        // for the same face
+        let mut interpolated_light_cache = [None; CHUNK_SIZE_SQUARED];
+
         // iterate over each block in the layer
         for original_v in 0..CHUNK_SIZE_U32 {
             for original_u in 0..CHUNK_SIZE_U32 {
@@ -239,6 +208,18 @@ where
                 let original_face = original_model.face(Dir::FACE_INDEX);
                 let original_visible = visible[original_index];
 
+                let original_light_data =
+                    if let Some(cached_light_data) = interpolated_light_cache[original_index] {
+                        cached_light_data
+                    } else {
+                        interpolate_light_for_face::<Dir>(
+                            LocalBlockPos::from(original_pos),
+                            input.blocks,
+                        )
+                        // no need to insert it into the cache because this face will never be
+                        // considered as a merge candidate
+                    };
+
                 // update `visible` for the next layer
                 visible[original_index] = original_model
                     .face(Dir::OPPOSITE_FACE_INDEX)
@@ -256,8 +237,10 @@ where
                     let (can_merge, next_visible) = consider_merge_candidate::<Dir>(
                         input.blocks,
                         &visible,
+                        &mut interpolated_light_cache,
                         layer_pos,
                         original_face,
+                        original_light_data,
                         merge_candidate_u,
                         original_v,
                     );
@@ -295,8 +278,10 @@ where
                         let (can_merge, next_visible) = consider_merge_candidate::<Dir>(
                             input.blocks,
                             &visible,
+                            &mut interpolated_light_cache,
                             layer_pos,
                             original_face,
+                            original_light_data,
                             merge_candidate_u,
                             merge_candidate_v,
                         );
@@ -333,17 +318,72 @@ where
                     original_pos.as_vec3() + input.translation,
                     face_size.as_vec2(),
                     original_face.texture_index,
-                    [1.0; 4],
+                    original_light_data,
                 );
             }
         }
     }
 }
 
+/// Evaluate whether the original face can be merged with the face with coordinates
+/// `merge_candidate_u` and `merge_candidate_v` in the layer with position `layer_pos`
+/// returns two booleans: whether the face can be merged, and whether the block with the
+/// same U and V coordinates in the following layer is visible
+fn consider_merge_candidate<Dir>(
+    blocks: &[BlockId],
+    visible: &[bool; CHUNK_SIZE_SQUARED],
+    interpolated_light_cache: &mut [Option<FaceLightData>; CHUNK_SIZE_SQUARED],
+    layer_pos: u32,
+    original_face: BlockFace,
+    original_light_data: FaceLightData,
+    merge_candidate_u: u32,
+    merge_candidate_v: u32,
+) -> (bool, bool)
+where
+    Dir: FaceDir,
+{
+    let merge_candidate_pos = UVec3::new(merge_candidate_u, merge_candidate_v, layer_pos);
+    let merge_candidate_pos = Dir::rotate_uvec3(merge_candidate_pos);
+
+    let merge_candidate_index = (CHUNK_SIZE_U32 * merge_candidate_v + merge_candidate_u) as usize;
+
+    let merge_candidate_id = blocks[uvec3_to_chunk_index(merge_candidate_pos) as usize];
+    let merge_candidate_model = &BLOCKS[merge_candidate_id.0 as usize].model;
+    let merge_candidate_face = merge_candidate_model.face(Dir::FACE_INDEX);
+    let merge_candidate_visible = visible[merge_candidate_index];
+
+    let next_visible = merge_candidate_model
+        .face(Dir::OPPOSITE_FACE_INDEX)
+        .is_none();
+
+    let can_merge = can_merge_faces::<Dir>(Some(original_face), merge_candidate_face)
+        && merge_candidate_visible;
+
+    if !can_merge {
+        return (false, next_visible);
+    }
+
+    let merge_candidate_light_data =
+        if let Some(cached_light_data) = interpolated_light_cache[merge_candidate_index] {
+            cached_light_data
+        } else {
+            let interpolated =
+                interpolate_light_for_face::<Dir>(LocalBlockPos::from(merge_candidate_pos), blocks);
+            interpolated_light_cache[merge_candidate_index] = Some(interpolated);
+            interpolated
+        };
+    let light_matches = merge_candidate_light_data == original_light_data;
+
+    (light_matches, next_visible)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct FaceLightData([f32; 4]);
+
 /// future: Interpolate the light values for each vertex of the given face
 /// now: just interpolate whether each block is not air, for AO
 /// once there is floodfill lighting, this will interpolate that instead
-pub fn interpolate_light_for_face<Dir>(block_pos: LocalBlockPos, blocks: &[BlockId]) -> [f32; 4]
+fn interpolate_light_for_face<Dir>(block_pos: LocalBlockPos, blocks: &[BlockId]) -> FaceLightData
 where
     Dir: FaceDir,
 {
@@ -407,12 +447,12 @@ where
         ],
     ];
 
-    [
+    FaceLightData([
         samples[0][0] + samples[0][1] + samples[1][0] + samples[1][1],
         samples[0][1] + samples[0][2] + samples[1][1] + samples[1][2],
         samples[1][0] + samples[1][1] + samples[2][0] + samples[2][1],
         samples[1][1] + samples[1][2] + samples[2][1] + samples[2][2],
-    ]
+    ])
 }
 
 /// Generate indices for the meshes returned by `mesh_culled` and `mesh_greedy`
