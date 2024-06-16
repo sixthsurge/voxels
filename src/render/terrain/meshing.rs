@@ -79,14 +79,27 @@ fn add_face<Dir>(
 ) where
     Dir: FaceDir,
 {
+    // improve the anisotropy in how the lighting is interpolated along the quad when divided into
+    // two triangles by flipping the orientation of the triangles based on the brightness of the
+    // light at each vertex.
+    // https://0fps.net/2013/07/03/ambient-occlusion-for-minecraft-like-worlds/ "Details regarding meshing"
+    let flipped = should_flip_quad(&light_data);
+
+    let vertex_offsets = Dir::vertices(size);
     let uvs = [[0.0, size.y], [size.x, size.y], [size.x, 0.0], [0.0, 0.0]];
 
     vertices.extend(
-        Dir::vertices(size)
-            .iter()
-            .enumerate()
-            .map(|(i, vertex_offset)| TerrainVertex {
-                position: (origin + *vertex_offset).to_array(),
+        (0..4)
+            .map(|i| {
+                // flip the quad by moving all vertices forwards by one
+                if flipped {
+                    (i + 1) & 3
+                } else {
+                    i
+                }
+            })
+            .map(|i| TerrainVertex {
+                position: (origin + vertex_offsets[i]).to_array(),
                 uv: uvs[i],
                 texture_index: texture_index as u32,
                 shading: Dir::SHADING * light_data.0[Dir::LIGHT_INDICES[i]],
@@ -453,6 +466,12 @@ where
         samples[1][0] + samples[1][1] + samples[2][0] + samples[2][1],
         samples[1][1] + samples[1][2] + samples[2][1] + samples[2][2],
     ])
+}
+
+/// Decide whether to generate a flipped quad based on the light data, in order to improve the
+/// anisotropy artifact caused by the division of the quad into two triangles
+fn should_flip_quad(light_data: &FaceLightData) -> bool {
+    light_data.0[0] + light_data.0[3] <= light_data.0[1] + light_data.0[2]
 }
 
 /// Generate indices for the meshes returned by `mesh_culled` and `mesh_greedy`
