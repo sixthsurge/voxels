@@ -67,8 +67,8 @@ impl State {
             .load_areas_mut()
             .insert(LoadArea::new(
                 ChunkPos::ZERO,
-                Size3::new(40, 8, 40),
-                terrain::load_area::AreaShape::Cubic,
+                Size3::new(41, 8, 41),
+                terrain::load_area::AreaShape::Cylindrical,
             ));
         let render_engine = RenderEngine::new(
             &render_context,
@@ -127,7 +127,8 @@ impl State {
             .set_center(self.fly_camera.position / (CHUNK_SIZE as f32));
 
         self.terrain.clear_events();
-        self.terrain.update(&mut self.tasks);
+        self.terrain
+            .update(&mut self.tasks, self.fly_camera.position);
 
         self.input.reset();
     }

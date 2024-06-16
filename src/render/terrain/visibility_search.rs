@@ -81,7 +81,7 @@ pub fn visibility_search<'terrain>(
                 })
                 // dir -> (dir, chunk_pos)
                 .map(|dir| (dir, step.chunk.pos() + ChunkPos::from(FACE_NORMALS[dir])))
-                .filter(|(_, chunk_pos)| load_area.contains_pos(chunk_pos))
+                .filter(|(_, chunk_pos)| load_area.is_within_bounds(chunk_pos))
                 // don't visit the same chunk twice
                 .filter(|(_, chunk_pos)| mark_seen(&mut seen, load_area, chunk_pos))
                 // frustum culling

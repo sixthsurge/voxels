@@ -213,11 +213,6 @@ impl TerrainRenderer {
                 visibility_search(terrain, load_area, frustum_culling_regions, camera_pos)
             }
         };
-        log::info!(
-            "Rendering {} of {} chunks",
-            render_queue.len(),
-            terrain.chunks().len()
-        );
 
         // prepare for rendering, updating meshes as necessary
         self.prepare(cx, &render_queue, tasks, terrain, load_area, camera_pos);
@@ -514,7 +509,7 @@ impl TerrainRenderer {
         self.meshing_tasks.remove(&chunk_pos);
 
         // make sure that the chunk is still loaded
-        if !loaded_area.has_chunk_index(&chunk_pos) {
+        if !loaded_area.is_loaded(&chunk_pos) {
             return;
         }
 

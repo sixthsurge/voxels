@@ -79,14 +79,14 @@ fn add_face<Dir>(
 ) where
     Dir: FaceDir,
 {
+    let vertex_offsets = Dir::vertices(size);
+    let uvs = [[0.0, size.y], [size.x, size.y], [size.x, 0.0], [0.0, 0.0]];
+
     // improve the anisotropy in how the lighting is interpolated along the quad when divided into
     // two triangles by flipping the orientation of the triangles based on the brightness of the
     // light at each vertex.
     // https://0fps.net/2013/07/03/ambient-occlusion-for-minecraft-like-worlds/ "Details regarding meshing"
     let flipped = should_flip_quad(&light_data);
-
-    let vertex_offsets = Dir::vertices(size);
-    let uvs = [[0.0, size.y], [size.x, size.y], [size.x, 0.0], [0.0, 0.0]];
 
     vertices.extend(
         (0..4)
