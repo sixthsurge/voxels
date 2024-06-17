@@ -1,21 +1,27 @@
 use std::sync::Arc;
 
+use block::BLOCK_AIR;
 use fly_camera::FlyCamera;
 use generational_arena::Index;
 use input::Input;
 use render::{render_context::RenderContext, render_engine::RenderEngine};
 use tasks::Tasks;
-use terrain::{chunk::CHUNK_SIZE, load_area::LoadArea, position_types::ChunkPos, Terrain};
+use terrain::{
+    chunk::CHUNK_SIZE, event::TerrainEvent, load_area::LoadArea, position_types::ChunkPos, Terrain,
+    TerrainHit,
+};
 use time::{TargetFrameRate, Time};
 use util::size::Size3;
 use winit::{
     application::ApplicationHandler,
-    dpi::PhysicalSize,
+    dpi::{LogicalPosition, PhysicalSize},
     error::EventLoopError,
-    event::{DeviceEvent, DeviceId, WindowEvent},
+    event::{DeviceEvent, DeviceId, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     window::{Window, WindowId},
 };
+
+use crate::{block::BLOCK_DIRT, terrain::position_types::GlobalBlockPos};
 
 mod block;
 mod fly_camera;
@@ -31,14 +37,17 @@ const WINDOW_TITLE: &'static str = "\"minecraft\"";
 /// Number of threads to use for task processing
 const TASKS_WORKER_THREAD_COUNT: usize = 4;
 
-/// Priority value for chunk mesh generation tasks
+/// Priority value for chunk mesh generation tasks when no mesh already exists
 const CHUNK_MESH_GENERATION_PRIORITY: i32 = 0;
 
-/// Priority value for chunk loading tasks
-const CHUNK_LOADING_PRIORITY: i32 = 1;
+/// Priority value for chunk mesh generation tasks when an outdated mesh already exists
+const CHUNK_MESH_UPDATE_PRIORITY: i32 = -1;
 
 /// Priority value for chunk mesh generation tasks when an up-to-date mesh already exists
 const CHUNK_MESH_OPTIMIZATION_PRIORITY: i32 = 2;
+
+/// Priority value for chunk loading tasks
+const CHUNK_LOADING_PRIORITY: i32 = 1;
 
 struct State {
     window: Arc<Window>,
@@ -108,6 +117,19 @@ impl State {
     }
 
     fn update(&mut self) {
+        self.terrain.clear_events();
+
+        // capture cursor
+        if self.window.has_focus() {
+            let window_size = self.window.inner_size();
+            self.window
+                .set_cursor_position(LogicalPosition::new(
+                    window_size.width / 2,
+                    window_size.height / 2,
+                ))
+                .unwrap();
+        }
+
         // display framerate in window title
         self.window.set_title(&format!(
             "{} ({} fps)",
@@ -123,10 +145,44 @@ impl State {
         self.render_engine
             .camera_mut()
             .transform = self.fly_camera.get_transform();
+
+        // block breaking and placing
+        let destroy = self
+            .input
+            .is_mouse_button_just_pressed(MouseButton::Left);
+        let place = self
+            .input
+            .is_mouse_button_just_pressed(MouseButton::Right);
+        if destroy || place {
+            let look_dir = self.render_engine.camera().look_dir(); // bad coupling
+
+            let hit = self.terrain.raymarch(
+                self.load_area_index,
+                self.fly_camera.position,
+                look_dir,
+                50.0,
+            );
+
+            if let Some(hit) = hit {
+                if destroy {
+                    self.terrain
+                        .set_block(self.load_area_index, &hit.hit_pos, BLOCK_AIR);
+                }
+                if place {
+                    if let Some(hit_normal) = hit.hit_normal {
+                        self.terrain.set_block(
+                            self.load_area_index,
+                            &(hit.hit_pos + GlobalBlockPos::from(hit_normal)),
+                            BLOCK_DIRT,
+                        );
+                    }
+                }
+            }
+        }
+
         self.terrain.load_areas_mut()[self.load_area_index]
             .set_center(self.fly_camera.position / (CHUNK_SIZE as f32));
 
-        self.terrain.clear_events();
         self.terrain
             .update(&mut self.tasks, self.fly_camera.position);
 
@@ -146,18 +202,12 @@ impl State {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let loaded_area = self
-            .terrain
-            .load_areas()
-            .get(self.load_area_index)
-            .unwrap();
-
         self.render_engine.render(
             &self.render_context,
             &output_view,
             &mut self.tasks,
             &self.terrain,
-            loaded_area,
+            self.load_area_index,
         );
 
         surface_texture.present();

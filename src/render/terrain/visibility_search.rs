@@ -1,3 +1,4 @@
+use generational_arena::Index;
 use glam::{IVec3, Vec3};
 use itertools::Itertools;
 
@@ -28,10 +29,15 @@ use crate::{
 /// Returns the Vec of chunks to be drawn in order
 pub fn visibility_search<'terrain>(
     terrain: &'terrain Terrain,
-    load_area: &LoadArea,
+    load_area_index: Index,
     frustum_culling: &FrustumCullingRegions,
     camera_pos: Vec3,
 ) -> Vec<&'terrain Chunk> {
+    let load_area = terrain
+        .load_areas()
+        .get(load_area_index)
+        .expect("the load area at `load_area_index` should exist");
+
     // queue of chunks to render in order, along with the face they were visited from
     let mut step_queue = Vec::new();
     // index of the entry in `step_queue` that is currently being visited
@@ -45,7 +51,7 @@ pub fn visibility_search<'terrain>(
             .floor()
             .as_ivec3(),
     );
-    let Some(camera_chunk) = load_area.get_chunk(terrain, &camera_chunk_pos) else {
+    let Some(camera_chunk) = terrain.get_chunk(load_area_index, &camera_chunk_pos) else {
         return Vec::new();
     };
 
@@ -88,8 +94,8 @@ pub fn visibility_search<'terrain>(
                 .filter(|(_, chunk_pos)| frustum_culling.is_chunk_within_frustum(chunk_pos))
                 // (dir, chunk_pos) -> SearchStep
                 .filter_map(|(dir, chunk_pos)| {
-                    load_area
-                        .get_chunk(terrain, &chunk_pos)
+                    terrain
+                        .get_chunk(load_area_index, &chunk_pos)
                         .map(|chunk| SearchStep {
                             chunk,
                             last_dir: Some(dir),

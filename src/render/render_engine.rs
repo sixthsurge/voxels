@@ -1,3 +1,5 @@
+use generational_arena::Index;
+
 use super::{
     camera::{Camera, Projection},
     frustum_culling::{self, FrustumCullingRegions},
@@ -100,7 +102,7 @@ impl RenderEngine {
         output_view: &wgpu::TextureView,
         tasks: &mut Tasks,
         terrain: &Terrain,
-        load_area: &LoadArea,
+        load_area_index: Index,
     ) {
         let view_matrix = self.camera.view_matrix();
         let proj_matrix = self.camera.projection_matrix();
@@ -134,7 +136,7 @@ impl RenderEngine {
             cx,
             tasks,
             terrain,
-            load_area,
+            load_area_index,
             &self.frustum_culling_regions,
             self.camera.pos(),
         );

@@ -38,7 +38,7 @@ impl VisibilityGraph {
                             + FACE_DIR_U[chunk_face] * u
                             + FACE_DIR_V[chunk_face] * v,
                     );
-                    let array_index = start_pos.as_array_index();
+                    let array_index = start_pos.get_array_index();
 
                     // skip this search if the start position was already explored
                     if explored[array_index] {
@@ -56,15 +56,15 @@ impl VisibilityGraph {
                     // flood fill starting at `start_pos`
                     frontier.push_back(start_pos);
                     while let Some(block_pos) = frontier.pop_front() {
-                        if explored[block_pos.as_array_index()] {
+                        if explored[block_pos.get_array_index()] {
                             continue;
                         }
-                        explored[block_pos.as_array_index()] = true;
+                        explored[block_pos.get_array_index()] = true;
 
                         for block_face in 0..6 {
                             if let Some(neighbour_pos) = block_pos.try_add(FACE_NORMALS[block_face])
                             {
-                                let array_index = neighbour_pos.as_array_index();
+                                let array_index = neighbour_pos.get_array_index();
 
                                 // if this position is unexplored and non-opaque, add it to the
                                 // frontier

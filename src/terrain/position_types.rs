@@ -1,5 +1,6 @@
 use derive_more::{Add, From, Sub};
 use glam::{IVec3, UVec3, Vec3};
+use wgpu::core::device::global;
 
 use super::chunk::{CHUNK_SIZE, CHUNK_SIZE_I32, CHUNK_SIZE_LOG2, CHUNK_SIZE_U32};
 
@@ -16,6 +17,18 @@ impl GlobalBlockPos {
 
     pub fn from_local_and_chunk_pos(local_pos: LocalBlockPos, chunk_pos: ChunkPos) -> Self {
         (local_pos.0.as_ivec3() + chunk_pos.0 * CHUNK_SIZE_I32).into()
+    }
+
+    /// Given a global block position, return the position of the block within its chunk and the
+    /// position of the chunk containing it
+    pub fn get_local_and_chunk_pos(&self) -> (LocalBlockPos, ChunkPos) {
+        let local_pos = (self.0 & (CHUNK_SIZE_I32 - 1))
+            .as_uvec3()
+            .into();
+
+        let chunk_pos = (self.0 >> (CHUNK_SIZE_LOG2 as i32)).into();
+
+        (local_pos, chunk_pos)
     }
 }
 
@@ -44,9 +57,17 @@ impl LocalBlockPos {
             .into()
     }
 
-    pub fn as_array_index(&self) -> usize {
+    pub fn get_array_index(&self) -> usize {
         ((CHUNK_SIZE_U32 * CHUNK_SIZE_U32) * self.0.z + CHUNK_SIZE_U32 * self.0.y + self.0.x)
             as usize
+    }
+
+    pub fn as_uvec3(&self) -> UVec3 {
+        self.0
+    }
+
+    pub fn as_ivec3(&self) -> IVec3 {
+        self.0.as_ivec3()
     }
 
     /// If `self.0 + other` is a local block position, return it.

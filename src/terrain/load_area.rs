@@ -1,9 +1,22 @@
-use derive_more::IsVariant;
-use generational_arena::Index;
-use glam::{Vec3, Vec3Swizzles};
+use std::f32::INFINITY;
 
-use super::{chunk::Chunk, position_types::ChunkPos, Terrain};
-use crate::util::size::{AsSize3, Size3};
+use derive_more::IsVariant;
+use generational_arena::{Arena, Index};
+use glam::{IVec3, Vec3, Vec3Swizzles};
+
+use super::{
+    chunk::Chunk,
+    position_types::{ChunkPos, GlobalBlockPos},
+    Terrain,
+};
+use crate::{
+    block::BlockId,
+    terrain::chunk::CHUNK_SIZE,
+    util::{
+        size::{AsSize3, Size3},
+        vector_map::VectorMapExt,
+    },
+};
 
 /// An `LoadArea` represents a region of terrain that is loaded in memory.
 /// The `LoadArea` provides O(1) lookup for the chunks it contains
@@ -38,9 +51,9 @@ impl LoadArea {
         }
     }
 
-    /// Returns the index of the chunk at the given position in the chunk arena
-    /// In `dev` builds, panics if the chunk positions is outside of the bounds of the area
-    /// The chunk is not guaranteed to still exist
+    /// If the given chunk position is within the bounds of this area and the chunk is loaded,
+    /// returns index of the given chunk in the chunk arena.
+    /// Otherwise returns None
     pub fn get_chunk_index(&self, chunk_pos: &ChunkPos) -> Option<Index> {
         self.get_array_index(chunk_pos)
             .and_then(|array_index| match self.chunk_states[array_index] {
@@ -53,26 +66,6 @@ impl LoadArea {
                     }
                 }
             })
-    }
-
-    /// Returns the chunk at the given chunk position, if it is loaded
-    pub fn get_chunk<'terrain>(
-        &self,
-        terrain: &'terrain Terrain,
-        chunk_pos: &ChunkPos,
-    ) -> Option<&'terrain Chunk> {
-        self.get_chunk_index(chunk_pos)
-            .and_then(|index| terrain.chunks().get(index))
-    }
-
-    /// Returns a mutable reference to the chunk at the given chunk position, if it is loaded
-    pub fn get_chunk_mut<'terrain>(
-        &self,
-        terrain: &'terrain mut Terrain,
-        chunk_pos: &ChunkPos,
-    ) -> Option<&'terrain mut Chunk> {
-        self.get_chunk_index(chunk_pos)
-            .and_then(|index| terrain.chunks_mut().get_mut(index))
     }
 
     /// True if the given chunk in the area is loaded

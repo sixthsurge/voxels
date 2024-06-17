@@ -69,7 +69,7 @@ impl ChunkRenderGroup {
         });
 
         let chunk_mesh_data = array_init::array_init(|_| None);
-        let chunk_mesh_status = array_init::array_init(|_| ChunkMeshStatus::NoneOrOutdated);
+        let chunk_mesh_status = array_init::array_init(|_| ChunkMeshStatus::Missing);
 
         Self {
             pos,
@@ -120,15 +120,17 @@ impl ChunkRenderGroup {
     /// Mark that the mesh data for the given chunk position is outdated, if it exists
     pub fn mark_outdated(&mut self, chunk_pos_in_group: UVec3) {
         let index = Self::get_index_for_chunk(chunk_pos_in_group);
-        if !self.chunk_mesh_status[index].is_none_or_outdated() {
-            self.chunk_mesh_status[index] = ChunkMeshStatus::NoneOrOutdated;
+        if !self.chunk_mesh_status[index].is_missing() {
+            self.chunk_mesh_status[index] = ChunkMeshStatus::Outdated;
         }
     }
 
     /// Mark that the mesh data for the given chunk position can be optimized, if it exists
     pub fn mark_suboptimal(&mut self, chunk_pos_in_group: UVec3) {
         let index = Self::get_index_for_chunk(chunk_pos_in_group);
-        if !self.chunk_mesh_status[index].is_none_or_outdated() {
+        if !self.chunk_mesh_status[index].is_missing()
+            && !self.chunk_mesh_status[index].is_outdated()
+        {
             self.chunk_mesh_status[index] = ChunkMeshStatus::Suboptimal;
         }
     }

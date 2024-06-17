@@ -402,7 +402,7 @@ where
 {
     fn sample_block_at(block_pos: Option<LocalBlockPos>, blocks: &[BlockId]) -> f32 {
         if let Some(block_pos) = block_pos {
-            let is_air = blocks[block_pos.as_array_index()] == BlockId(0);
+            let is_air = blocks[block_pos.get_array_index()] == BlockId(0);
             if is_air {
                 0.25
             } else {

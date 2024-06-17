@@ -1,18 +1,19 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use generational_arena::{Arena, Index};
-use glam::Vec3;
+use glam::{IVec3, Vec3};
 use itertools::Itertools;
-use rustc_hash::FxHashSet;
 
 use self::{
-    chunk::{Chunk, CHUNK_SIZE},
+    chunk::{Chunk, CHUNK_SIZE, CHUNK_SIZE_RECIP},
     event::TerrainEvent,
     load_area::{LoadArea, LoadAreaState},
-    position_types::ChunkPos,
+    position_types::{ChunkPos, GlobalBlockPos},
 };
 use crate::{
+    block::BlockId,
     tasks::{TaskPriority, Tasks},
+    util::vector_map::VectorMapExt,
     CHUNK_LOADING_PRIORITY,
 };
 
@@ -66,6 +67,126 @@ impl Terrain {
         for (_, area) in &mut self.load_areas {
             area.set_state(LoadAreaState::Clean);
         }
+    }
+
+    /// If the chunk at the given position is loaded and within the specified load area, returns a
+    /// shared reference to that chunk in the chunk arena. Otherwise returns None
+    pub fn get_chunk(&self, load_area_index: Index, chunk_pos: &ChunkPos) -> Option<&Chunk> {
+        let load_area = self
+            .load_areas
+            .get(load_area_index)
+            .expect("the load area at index `load_area_index` should exist");
+
+        load_area
+            .get_chunk_index(&chunk_pos)
+            .and_then(|chunk_index| self.chunks.get(chunk_index))
+    }
+
+    /// If the chunk at the given position is loaded and within the specified load area, returns a
+    /// mutable reference to that chunk in the chunk arena. Otherwise returns None
+    pub fn get_chunk_mut(
+        &mut self,
+        load_area_index: Index,
+        chunk_pos: &ChunkPos,
+    ) -> Option<&mut Chunk> {
+        let load_area = self
+            .load_areas
+            .get(load_area_index)
+            .expect("the load area at index `load_area_index` should exist");
+
+        load_area
+            .get_chunk_index(&chunk_pos)
+            .and_then(|chunk_index| self.chunks.get_mut(chunk_index))
+    }
+
+    /// If the position is inside a loaded chunk within the given load area, returns the block ID
+    /// at that position. Otherwise returns None
+    pub fn get_block(
+        &self,
+        load_area_index: Index,
+        global_block_pos: &GlobalBlockPos,
+    ) -> Option<BlockId> {
+        let (local_block_pos, chunk_pos) = global_block_pos.get_local_and_chunk_pos();
+
+        self.get_chunk(load_area_index, &chunk_pos)
+            .map(|chunk| chunk.get_block(local_block_pos))
+    }
+
+    /// If the global block position is inside a loaded chunk within this area, sets the block
+    /// ID at the given index to the provided ID and fire a `BlockModified` event
+    /// Otherwise returns false
+    pub fn set_block(
+        &mut self,
+        load_area_index: Index,
+        global_block_pos: &GlobalBlockPos,
+        new_id: BlockId,
+    ) -> bool {
+        let (local_block_pos, chunk_pos) = global_block_pos.get_local_and_chunk_pos();
+
+        if let Some(chunk) = self.get_chunk_mut(load_area_index, &chunk_pos) {
+            chunk.set_block(local_block_pos, new_id);
+            self.events
+                .push(TerrainEvent::BlockModified(chunk_pos, local_block_pos));
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Raymarch through the chunks in the given load area, returning the position and normal of
+    /// the first block intersected by the ray
+    pub fn raymarch(
+        &self,
+        load_area_index: Index,
+        ray_origin: Vec3,
+        ray_direction: Vec3,
+        maximum_distance: f32,
+    ) -> Option<TerrainHit> {
+        pub const EPS: f32 = 1e-3;
+
+        let dir_step = ray_direction.map(|component| if component >= 0.0 { 1.0 } else { 0.0 });
+        let dir_recip = ray_direction.recip();
+
+        let mut t = 0.0;
+        let mut previous_chunk_pos = None;
+
+        while t < maximum_distance {
+            let ray_pos = ray_origin + ray_direction * t;
+
+            let chunk_pos = ChunkPos::from(
+                (ray_pos * CHUNK_SIZE_RECIP)
+                    .floor()
+                    .as_ivec3(),
+            );
+            if let Some(chunk) = self.get_chunk(load_area_index, &chunk_pos) {
+                let ray_origin = ray_pos - chunk_pos.as_vec3() * (CHUNK_SIZE as f32);
+
+                if let Some(hit) = chunk.raymarch(
+                    ray_origin,
+                    ray_direction,
+                    previous_chunk_pos,
+                    maximum_distance - t,
+                ) {
+                    return Some(TerrainHit {
+                        hit_pos: GlobalBlockPos::from_local_and_chunk_pos(
+                            hit.local_hit_pos,
+                            chunk_pos,
+                        ),
+                        hit_normal: hit.hit_normal,
+                    });
+                }
+            }
+
+            // advance to the next chunk position
+            let deltas = (dir_step - ray_pos * CHUNK_SIZE_RECIP).fract_gl()
+                * dir_recip
+                * (CHUNK_SIZE as f32);
+            t += deltas.min_element().max(EPS);
+
+            previous_chunk_pos = Some(chunk_pos);
+        }
+
+        None
     }
 
     /// The arena of loaded chunks
@@ -229,4 +350,10 @@ impl Terrain {
             ));
         self.chunks.remove(chunk_index);
     }
+}
+
+/// Returned by `Terrain::raymarch` when a block is intersected
+pub struct TerrainHit {
+    pub hit_pos: GlobalBlockPos,
+    pub hit_normal: Option<IVec3>,
 }
