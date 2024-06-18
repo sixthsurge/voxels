@@ -19,6 +19,7 @@ use crate::{
 
 pub mod chunk;
 pub mod event;
+pub mod lighting;
 pub mod load_area;
 pub mod position_types;
 

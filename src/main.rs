@@ -6,10 +6,7 @@ use generational_arena::Index;
 use input::Input;
 use render::{render_context::RenderContext, render_engine::RenderEngine};
 use tasks::Tasks;
-use terrain::{
-    chunk::CHUNK_SIZE, event::TerrainEvent, load_area::LoadArea, position_types::ChunkPos, Terrain,
-    TerrainHit,
-};
+use terrain::{chunk::CHUNK_SIZE, load_area::LoadArea, position_types::ChunkPos, Terrain};
 use time::{TargetFrameRate, Time};
 use util::size::Size3;
 use winit::{
@@ -38,17 +35,17 @@ const WINDOW_TITLE: &'static str = "\"minecraft\"";
 /// Number of threads to use for task processing
 const TASKS_WORKER_THREAD_COUNT: usize = 4;
 
-/// Priority value for chunk mesh generation tasks when no mesh already exists
-const CHUNK_MESH_GENERATION_PRIORITY: i32 = 0;
-
 /// Priority value for chunk mesh generation tasks when an outdated mesh already exists
-const CHUNK_MESH_UPDATE_PRIORITY: i32 = -1;
+const CHUNK_MESH_UPDATE_PRIORITY: i32 = 0;
 
-/// Priority value for chunk mesh generation tasks when an up-to-date mesh already exists
-const CHUNK_MESH_OPTIMIZATION_PRIORITY: i32 = 2;
+/// Priority value for chunk mesh generation tasks when no mesh already exists
+const CHUNK_MESH_GENERATION_PRIORITY: i32 = 1;
 
 /// Priority value for chunk loading tasks
-const CHUNK_LOADING_PRIORITY: i32 = 1;
+const CHUNK_LOADING_PRIORITY: i32 = 2;
+
+/// Priority value for chunk mesh generation tasks when an up-to-date mesh already exists
+const CHUNK_MESH_OPTIMIZATION_PRIORITY: i32 = 3;
 
 struct State {
     window: Arc<Window>,
@@ -214,6 +211,7 @@ impl State {
         self.render_engine.render(
             &self.render_context,
             &output_view,
+            &self.time,
             &mut self.tasks,
             &self.terrain,
             self.load_area_index,

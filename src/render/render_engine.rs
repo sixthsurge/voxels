@@ -2,9 +2,9 @@ use generational_arena::Index;
 
 use super::{
     camera::{Camera, Projection},
-    chunks::{ChunkRenderer, TerrainCullMode},
     frustum_culling::{self, FrustumCullingRegions},
     render_context::RenderContext,
+    terrain::{TerrainCullMode, TerrainRenderer},
     util::{
         bind_group_builder::BindGroupBuilder,
         texture::{DepthTexture, TextureHolder, WithViewAndSampler},
@@ -13,6 +13,7 @@ use super::{
 use crate::{
     tasks::Tasks,
     terrain::{load_area::LoadArea, Terrain},
+    time::Time,
     util::{size::Size3, transform::Transform, DEGREE},
 };
 
@@ -21,7 +22,7 @@ pub struct RenderEngine {
     common_uniforms: CommonUniforms,
     common_uniforms_buffer: wgpu::Buffer,
     common_uniforms_bind_group: wgpu::BindGroup,
-    chunk_renderer: ChunkRenderer,
+    terrain_renderer: TerrainRenderer,
     camera: Camera,
     frustum_culling_regions: FrustumCullingRegions,
 }
@@ -64,9 +65,10 @@ impl RenderEngine {
                 .with_uniform_buffer(&common_uniforms_buffer, wgpu::ShaderStages::all())
                 .build(&cx.device);
 
-        let chunk_renderer = ChunkRenderer::new(
+        let terrain_renderer = TerrainRenderer::new(
             cx,
             &common_uniforms_bind_group_layout,
+            load_area,
             TerrainCullMode::VisibilitySearch,
         );
 
@@ -90,7 +92,7 @@ impl RenderEngine {
             common_uniforms,
             common_uniforms_buffer,
             common_uniforms_bind_group,
-            chunk_renderer,
+            terrain_renderer,
             camera,
             frustum_culling_regions,
         }
@@ -100,6 +102,7 @@ impl RenderEngine {
         &mut self,
         cx: &RenderContext,
         output_view: &wgpu::TextureView,
+        time: &Time,
         tasks: &mut Tasks,
         terrain: &Terrain,
         load_area_index: Index,
@@ -128,12 +131,13 @@ impl RenderEngine {
                     label: Some("Render Encoder"),
                 });
 
-        self.chunk_renderer.render(
+        self.terrain_renderer.render(
             &mut render_encoder,
             output_view,
             &self.depth_texture.view(),
             &self.common_uniforms_bind_group,
             cx,
+            time,
             tasks,
             terrain,
             load_area_index,

@@ -1,7 +1,16 @@
 use std::sync::Arc;
 
+use generational_arena::Index;
+
 use super::{Chunk, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32};
-use crate::{block::BLOCKS, terrain::position_types::LocalBlockPos, util::face::FaceIndex};
+use crate::{
+    block::BLOCKS,
+    terrain::{
+        position_types::{ChunkPos, LocalBlockPos},
+        Terrain,
+    },
+    util::face::FaceIndex,
+};
 
 /// Represents a side of a chunk, storing whether each tile is solid (false) or empty (true).
 /// The tiles are indexed as follows:
@@ -144,5 +153,33 @@ impl ChunkSide {
         Self {
             faces: faces.into(),
         }
+    }
+
+    /// Returns the sides of all chunks surrounding `chunk_pos`
+    pub fn get_surrounding_sides(
+        center_pos: ChunkPos,
+        terrain: &Terrain,
+        load_area_index: Index,
+    ) -> Vec<Option<ChunkSide>> {
+        let side_px = terrain
+            .get_chunk(load_area_index, &(center_pos + ChunkPos::new(1, 0, 0)))
+            .map(ChunkSide::nx);
+        let side_py = terrain
+            .get_chunk(load_area_index, &(center_pos + ChunkPos::new(0, 1, 0)))
+            .map(ChunkSide::ny);
+        let side_pz = terrain
+            .get_chunk(load_area_index, &(center_pos + ChunkPos::new(0, 0, 1)))
+            .map(ChunkSide::nz);
+        let side_nx = terrain
+            .get_chunk(load_area_index, &(center_pos + ChunkPos::new(-1, 0, 0)))
+            .map(ChunkSide::px);
+        let side_ny = terrain
+            .get_chunk(load_area_index, &(center_pos + ChunkPos::new(0, -1, 0)))
+            .map(ChunkSide::py);
+        let side_nz = terrain
+            .get_chunk(load_area_index, &(center_pos + ChunkPos::new(0, 0, -1)))
+            .map(ChunkSide::pz);
+
+        vec![side_px, side_py, side_pz, side_nx, side_ny, side_nz]
     }
 }

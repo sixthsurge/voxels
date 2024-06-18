@@ -112,6 +112,15 @@ impl AsSize2 for IVec2 {
     }
 }
 
+impl AsSize2 for Vec2 {
+    fn as_size2(&self) -> Size2 {
+        Size2 {
+            x: self.x as usize,
+            y: self.y as usize,
+        }
+    }
+}
+
 /// Size of a 3D grid
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Size3 {
@@ -176,15 +185,6 @@ impl Size3 {
             && v.z < self.z as i32
     }
 }
-impl AsSize3 for IVec3 {
-    fn as_size3(&self) -> Size3 {
-        Size3 {
-            x: self.x as usize,
-            y: self.y as usize,
-            z: self.z as usize,
-        }
-    }
-}
 
 impl Add for Size3 {
     type Output = Self;
@@ -239,6 +239,26 @@ pub trait AsSize3 {
 }
 
 impl AsSize3 for UVec3 {
+    fn as_size3(&self) -> Size3 {
+        Size3 {
+            x: self.x as usize,
+            y: self.y as usize,
+            z: self.z as usize,
+        }
+    }
+}
+
+impl AsSize3 for IVec3 {
+    fn as_size3(&self) -> Size3 {
+        Size3 {
+            x: self.x as usize,
+            y: self.y as usize,
+            z: self.z as usize,
+        }
+    }
+}
+
+impl AsSize3 for Vec3 {
     fn as_size3(&self) -> Size3 {
         Size3 {
             x: self.x as usize,

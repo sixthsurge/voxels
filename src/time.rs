@@ -8,6 +8,8 @@ pub enum TargetFrameRate {
 
 #[derive(Debug, Clone)]
 pub struct Time {
+    /// Incremented by one each frame
+    frame_index: usize,
     /// Target frame rate
     target_frame_rate: TargetFrameRate,
     /// Instant of the first frame
@@ -27,6 +29,7 @@ pub struct Time {
 impl Time {
     pub fn new(target_frame_rate: TargetFrameRate) -> Self {
         Self {
+            frame_index: 0,
             target_frame_rate,
             first_frame_instant: Instant::now(),
             last_frame_instant: Instant::now(),
@@ -39,6 +42,9 @@ impl Time {
 
     /// This function is called at the beginning of each frame
     pub fn begin_frame(&mut self) {
+        // update frame index
+        self.frame_index += 1;
+
         // update delta
         let now = Instant::now();
         self.delta = now - self.last_frame_instant;
@@ -76,6 +82,11 @@ impl Time {
             self.frames_last_second = self.frames_this_second;
             self.frames_this_second = 0;
         }
+    }
+
+    /// Incremented each frame
+    pub fn frame_index(&self) -> usize {
+        self.frame_index
     }
 
     /// The duration of the previous frame
