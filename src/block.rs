@@ -18,7 +18,8 @@ pub struct Block {
 pub const BLOCK_AIR: BlockId = BlockId(0);
 pub const BLOCK_DIRT: BlockId = BlockId(1);
 pub const BLOCK_GRASS: BlockId = BlockId(2);
-pub const BLOCK_COUNT: usize = 3;
+pub const BLOCK_WOOD: BlockId = BlockId(3);
+pub const BLOCK_COUNT: usize = 4;
 
 pub const BLOCKS: [Block; BLOCK_COUNT] = [
     // Air
@@ -45,6 +46,17 @@ pub const BLOCKS: [Block; BLOCK_COUNT] = [
             BlockFace { texture_index: 1 },
             BlockFace { texture_index: 0 },
             BlockFace { texture_index: 1 },
+        ]),
+    },
+    // Wood
+    Block {
+        model: BlockModel::FullBlock([
+            BlockFace { texture_index: 3 },
+            BlockFace { texture_index: 3 },
+            BlockFace { texture_index: 3 },
+            BlockFace { texture_index: 3 },
+            BlockFace { texture_index: 3 },
+            BlockFace { texture_index: 3 },
         ]),
     },
 ];

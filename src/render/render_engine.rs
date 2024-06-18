@@ -2,9 +2,9 @@ use generational_arena::Index;
 
 use super::{
     camera::{Camera, Projection},
+    chunks::{ChunkRenderer, TerrainCullMode},
     frustum_culling::{self, FrustumCullingRegions},
     render_context::RenderContext,
-    terrain::{TerrainCullMode, TerrainRenderer},
     util::{
         bind_group_builder::BindGroupBuilder,
         texture::{DepthTexture, TextureHolder, WithViewAndSampler},
@@ -21,7 +21,7 @@ pub struct RenderEngine {
     common_uniforms: CommonUniforms,
     common_uniforms_buffer: wgpu::Buffer,
     common_uniforms_bind_group: wgpu::BindGroup,
-    terrain_renderer: TerrainRenderer,
+    chunk_renderer: ChunkRenderer,
     camera: Camera,
     frustum_culling_regions: FrustumCullingRegions,
 }
@@ -64,7 +64,7 @@ impl RenderEngine {
                 .with_uniform_buffer(&common_uniforms_buffer, wgpu::ShaderStages::all())
                 .build(&cx.device);
 
-        let terrain_renderer = TerrainRenderer::new(
+        let chunk_renderer = ChunkRenderer::new(
             cx,
             &common_uniforms_bind_group_layout,
             TerrainCullMode::VisibilitySearch,
@@ -90,7 +90,7 @@ impl RenderEngine {
             common_uniforms,
             common_uniforms_buffer,
             common_uniforms_bind_group,
-            terrain_renderer,
+            chunk_renderer,
             camera,
             frustum_culling_regions,
         }
@@ -128,7 +128,7 @@ impl RenderEngine {
                     label: Some("Render Encoder"),
                 });
 
-        self.terrain_renderer.render(
+        self.chunk_renderer.render(
             &mut render_encoder,
             output_view,
             &self.depth_texture.view(),

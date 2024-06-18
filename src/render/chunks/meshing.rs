@@ -1,7 +1,7 @@
 use glam::{UVec2, UVec3, Vec2, Vec3};
 
 use self::face_dir::*;
-use super::vertex::TerrainVertex;
+use super::vertex::ChunkVertex;
 use crate::{
     block::{model::BlockFace, BlockId, BLOCKS},
     terrain::{
@@ -27,7 +27,7 @@ pub struct ChunkMeshInput<'a> {
 /// Compared to `mesh_greedy`, meshing is much faster but the resulting meshes
 /// are more complex and therefore slower to render
 #[allow(unused)]
-pub fn mesh_culled(input: ChunkMeshInput) -> Vec<TerrainVertex> {
+pub fn mesh_culled(input: ChunkMeshInput) -> Vec<ChunkVertex> {
     let mut vertices = Vec::new();
 
     add_visible_faces::<PosX>(&mut vertices, input);
@@ -45,7 +45,7 @@ pub fn mesh_culled(input: ChunkMeshInput) -> Vec<TerrainVertex> {
 /// Compared to `culled`, meshing is much slower but the resulting meshes
 /// are simpler and therefore faster to render
 #[allow(unused)]
-pub fn mesh_greedy(input: ChunkMeshInput) -> Vec<TerrainVertex> {
+pub fn mesh_greedy(input: ChunkMeshInput) -> Vec<ChunkVertex> {
     let mut vertices = Vec::new();
 
     add_greedy_merged_faces::<PosX>(&mut vertices, input);
@@ -71,7 +71,7 @@ where
 /// Add a single axis-aligned face to the mesh
 /// `origin` is the position of the cell with the smallest coordinates that this face covers
 fn add_face<Dir>(
-    vertices: &mut Vec<TerrainVertex>,
+    vertices: &mut Vec<ChunkVertex>,
     origin: Vec3,
     size: Vec2,
     texture_index: usize,
@@ -98,7 +98,7 @@ fn add_face<Dir>(
                     i
                 }
             })
-            .map(|i| TerrainVertex {
+            .map(|i| ChunkVertex {
                 position: (origin + vertex_offsets[i]).to_array(),
                 uv: uvs[i],
                 texture_index: texture_index as u32,
@@ -108,7 +108,7 @@ fn add_face<Dir>(
 }
 
 /// Add all visible faces for the given face direction
-fn add_visible_faces<Dir>(vertices: &mut Vec<TerrainVertex>, input: ChunkMeshInput)
+fn add_visible_faces<Dir>(vertices: &mut Vec<ChunkVertex>, input: ChunkMeshInput)
 where
     Dir: FaceDir,
 {
@@ -162,7 +162,7 @@ where
 }
 
 /// Greedily merge visible faces with the given direction and add them to the mesh
-fn add_greedy_merged_faces<Dir>(vertices: &mut Vec<TerrainVertex>, input: ChunkMeshInput)
+fn add_greedy_merged_faces<Dir>(vertices: &mut Vec<ChunkVertex>, input: ChunkMeshInput)
 where
     Dir: FaceDir,
 {

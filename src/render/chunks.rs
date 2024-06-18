@@ -7,11 +7,12 @@ use generational_arena::Index;
 use glam::{IVec3, UVec3, Vec3};
 use itertools::Itertools;
 use rustc_hash::{FxHashMap, FxHashSet};
+use wgpu::{util::DeviceExt, BufferAddress};
 
 use self::{
+    batching::{ChunkBatch, CHUNK_BATCH_SIZE},
     meshing::ChunkMeshInput,
-    render_groups::{ChunkRenderGroup, RENDER_GROUP_SIZE},
-    vertex::TerrainVertex,
+    vertex::ChunkVertex,
     visibility_search::visibility_search,
 };
 use super::{
@@ -37,27 +38,32 @@ use crate::{
     CHUNK_MESH_GENERATION_PRIORITY, CHUNK_MESH_OPTIMIZATION_PRIORITY, CHUNK_MESH_UPDATE_PRIORITY,
 };
 
+mod batching;
 mod meshing;
-mod render_groups;
 mod vertex;
 mod visibility_search;
 
 /// Responsible for rendering the voxel terrain
-pub struct TerrainRenderer {
+pub struct ChunkRenderer {
     /// Cull mode to use
     cull_mode: TerrainCullMode,
-    /// Render pipeline for drawing chunk render groups
+    /// Render pipeline for drawing chunk batches
     terrain_pipeline: wgpu::RenderPipeline,
     /// Bind group for the texture array
     texture_bind_group: wgpu::BindGroup,
-    /// Bind group layout for uniforms specific to each chunk render group
-    render_group_bind_group_layout: wgpu::BindGroupLayout,
-    /// HashMap storing active chunk render groups indexed by their position in the grid
-    active_groups: FxHashMap<IVec3, ChunkRenderGroup>,
-    /// Positions of active render groups, for quick iteration
-    active_group_positions: Vec<IVec3>,
-    /// Positions of render groups that require mesh updates
-    render_groups_requiring_mesh_updates: Vec<IVec3>,
+    /// Bind group layout for uniforms specific to each chunk batch
+    batch_bind_group_layout: wgpu::BindGroupLayout,
+    /// As the indices for drawing chunk batches follow the same pattern for all batches, one index
+    /// buffer is shared between all batches
+    shared_index_buffer: wgpu::Buffer,
+    /// Number of elements in `shared_index_buffer`
+    shared_index_buffer_vertex_count: usize,
+    /// HashMap storing active chunk batches indexed by their position in the grid
+    batches: FxHashMap<IVec3, ChunkBatch>,
+    /// Positions of all batches, for quick iteration
+    batch_positions: Vec<IVec3>,
+    /// Positions of batches that require mesh updates
+    batches_requiring_mesh_updates: Vec<IVec3>,
     /// Task IDs for active mesh generation tasks
     meshing_tasks: FxHashMap<ChunkPos, TaskId>,
     /// Sender for finished chunk meshes
@@ -66,8 +72,9 @@ pub struct TerrainRenderer {
     finished_mesh_rx: Receiver<(ChunkPos, ChunkMeshData)>,
 }
 
-impl TerrainRenderer {
+impl ChunkRenderer {
     pub const MIP_LEVEL_COUNT: u32 = 4;
+    pub const SHARED_INDEX_BUFFER_INITIAL_VERTEX_COUNT: usize = 50000;
 
     pub fn new(
         cx: &RenderContext,
@@ -82,6 +89,7 @@ impl TerrainRenderer {
                 "assets/image/block/dirt.png",
                 "assets/image/block/grass_side.png",
                 "assets/image/block/grass_top.png",
+                "assets/image/block/wood.png",
             ],
             image::ImageFormat::Png,
             &TextureConfig {
@@ -130,7 +138,7 @@ impl TerrainRenderer {
             )
             .build(&cx.device);
 
-        let render_group_bind_group_layout =
+        let batch_bind_group_layout =
             cx.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: None,
@@ -154,8 +162,8 @@ impl TerrainRenderer {
             .with_label("Terrain Pipeline")
             .with_bind_group_layout(&texture_bind_group_layout)
             .with_bind_group_layout(&common_uniforms_bind_group_layout)
-            .with_bind_group_layout(&render_group_bind_group_layout)
-            .with_vertex::<TerrainVertex>()
+            .with_bind_group_layout(&batch_bind_group_layout)
+            .with_vertex::<ChunkVertex>()
             .with_vertex_shader(&terrain_shader, "vs_main")
             .with_fragment_shader(&terrain_shader, "fs_main")
             .with_color_target(
@@ -169,14 +177,26 @@ impl TerrainRenderer {
 
         let (finished_mesh_tx, finished_mesh_rx) = mpsc::channel();
 
+        let shared_indices =
+            meshing::generate_indices(Self::SHARED_INDEX_BUFFER_INITIAL_VERTEX_COUNT);
+        let shared_index_buffer = cx
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Chunk Renderer Shared Index Buffer"),
+                contents: bytemuck::cast_slice(&shared_indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
         Self {
             cull_mode,
             terrain_pipeline,
             texture_bind_group,
-            render_group_bind_group_layout,
-            active_groups: FxHashMap::default(),
-            active_group_positions: Vec::new(),
-            render_groups_requiring_mesh_updates: Vec::new(),
+            batch_bind_group_layout,
+            shared_index_buffer,
+            shared_index_buffer_vertex_count: Self::SHARED_INDEX_BUFFER_INITIAL_VERTEX_COUNT,
+            batches: FxHashMap::default(),
+            batch_positions: Vec::new(),
+            batches_requiring_mesh_updates: Vec::new(),
             meshing_tasks: FxHashMap::default(),
             finished_mesh_tx,
             finished_mesh_rx,
@@ -264,30 +284,34 @@ impl TerrainRenderer {
         render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
         render_pass.set_bind_group(1, &common_uniforms_bind_group, &[]);
 
-        // will track which chunk render groups have already been drawn, to avoid issuing multiple
+        // will track which chunk batches have already been drawn, to avoid issuing multiple
         // draw calls for the same group
-        let mut drawn_render_groups = FxHashSet::default();
+        let mut drawn_batches = FxHashSet::default();
 
         for chunk in &render_queue {
-            let (group_pos, _) = Self::get_group_pos_and_chunk_pos_in_group(chunk.pos());
+            let (group_pos, _) = Self::get_group_pos_and_chunk_pos_in_batch(chunk.pos());
 
-            if drawn_render_groups.contains(&group_pos) {
+            if drawn_batches.contains(&group_pos) {
                 continue;
             }
 
-            let Some(render_group) = self.active_groups.get(&group_pos) else {
+            let Some(batch) = self.batches.get(&group_pos) else {
                 continue;
             };
-            let Some(mesh) = render_group.mesh() else {
+            let Some(vertex_buffer) = batch.vertex_buffer() else {
                 continue;
             };
 
-            render_pass.set_bind_group(2, render_group.bind_group(), &[]);
-            render_pass.set_vertex_buffer(0, mesh.vertex_buffer().slice(..));
-            render_pass.set_index_buffer(mesh.index_buffer().slice(..), mesh.index_format());
-            render_pass.draw_indexed(0..mesh.index_count(), 0, 0..1);
+            render_pass.set_bind_group(2, batch.bind_group(), &[]);
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_pass.set_index_buffer(
+                self.shared_index_buffer
+                    .slice(0..(4 * batch.index_count() as BufferAddress)),
+                wgpu::IndexFormat::Uint32,
+            );
+            render_pass.draw_indexed(0..(batch.index_count() as u32), 0, 0..1);
 
-            drawn_render_groups.insert(group_pos);
+            drawn_batches.insert(group_pos);
         }
     }
 
@@ -332,24 +356,39 @@ impl TerrainRenderer {
         }
 
         // remove any empty groups
-        let render_groups_to_remove = self
-            .active_group_positions
+        let batches_to_remove = self
+            .batch_positions
             .iter()
             .copied()
-            .filter(|group_pos| self.active_groups[group_pos].is_empty())
+            .filter(|group_pos| self.batches[group_pos].is_empty())
             .collect_vec();
-        render_groups_to_remove
+        batches_to_remove
             .iter()
             .copied()
-            .for_each(|group_pos| self.remove_group(group_pos));
+            .for_each(|group_pos| self.remove_batch(group_pos));
 
-        // update the meshes of any dirty groups
-        for group_pos in &self.render_groups_requiring_mesh_updates {
-            if let Some(group) = self.active_groups.get_mut(&group_pos) {
-                group.update_mesh(&cx.device);
+        // update the vertex buffers of any dirty groups, and grow the shared index buffer if needed
+        let mut highest_vertex_count = self.shared_index_buffer_vertex_count;
+        for group_pos in &self.batches_requiring_mesh_updates {
+            if let Some(batch) = self.batches.get_mut(&group_pos) {
+                batch.update_vertex_buffer(&cx.device, &cx.queue);
+                highest_vertex_count = highest_vertex_count.max(batch.vertex_count());
             }
         }
-        self.render_groups_requiring_mesh_updates
+        if highest_vertex_count > self.shared_index_buffer_vertex_count {
+            // grow shared index buffer
+            let shared_indices = meshing::generate_indices(highest_vertex_count);
+            self.shared_index_buffer =
+                cx.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Chunk Renderer Shared Index Buffer"),
+                        contents: bytemuck::cast_slice(&shared_indices),
+                        usage: wgpu::BufferUsages::INDEX,
+                    });
+            self.shared_index_buffer_vertex_count = highest_vertex_count;
+        }
+
+        self.batches_requiring_mesh_updates
             .clear();
     }
 
@@ -367,22 +406,22 @@ impl TerrainRenderer {
         ];
         for neighbour_pos in neighbour_positions {
             let (group_pos, chunk_pos_in_group) =
-                Self::get_group_pos_and_chunk_pos_in_group(neighbour_pos);
+                Self::get_group_pos_and_chunk_pos_in_batch(neighbour_pos);
 
-            if let Some(group) = self.active_groups.get_mut(&group_pos) {
+            if let Some(group) = self.batches.get_mut(&group_pos) {
                 group.mark_suboptimal(chunk_pos_in_group);
             }
         }
     }
 
-    /// Called when a chunk has been unloaded to remove its mesh from the render group containing
+    /// Called when a chunk has been unloaded to remove its mesh from the batch containing
     /// it
     fn chunk_unloaded(&mut self, chunk_pos: ChunkPos) {
-        let (group_pos, chunk_pos_in_group) = Self::get_group_pos_and_chunk_pos_in_group(chunk_pos);
+        let (group_pos, chunk_pos_in_group) = Self::get_group_pos_and_chunk_pos_in_batch(chunk_pos);
 
-        if let Some(group) = self.active_groups.get_mut(&group_pos) {
+        if let Some(group) = self.batches.get_mut(&group_pos) {
             group.clear_mesh_data_for_chunk(chunk_pos_in_group);
-            self.render_groups_requiring_mesh_updates
+            self.batches_requiring_mesh_updates
                 .push(group_pos);
         }
     }
@@ -390,9 +429,9 @@ impl TerrainRenderer {
     /// Called when a block in a chunk has been modified
     fn chunk_modified(&mut self, chunk_pos: &ChunkPos, block_pos: &LocalBlockPos) {
         let (group_pos, chunk_pos_in_group) =
-            Self::get_group_pos_and_chunk_pos_in_group(*chunk_pos);
+            Self::get_group_pos_and_chunk_pos_in_batch(*chunk_pos);
 
-        if let Some(group) = self.active_groups.get_mut(&group_pos) {
+        if let Some(group) = self.batches.get_mut(&group_pos) {
             group.mark_outdated(chunk_pos_in_group);
         }
     }
@@ -411,9 +450,9 @@ impl TerrainRenderer {
         }
 
         let (group_pos, chunk_pos_in_group) =
-            Self::get_group_pos_and_chunk_pos_in_group(chunk.pos());
+            Self::get_group_pos_and_chunk_pos_in_batch(chunk.pos());
 
-        if let Some(group) = self.active_groups.get_mut(&group_pos) {
+        if let Some(group) = self.batches.get_mut(&group_pos) {
             match group.get_status_for_chunk(chunk_pos_in_group) {
                 ChunkMeshStatus::Good | ChunkMeshStatus::Generating => (),
                 ChunkMeshStatus::Missing => {
@@ -451,7 +490,7 @@ impl TerrainRenderer {
                 }
             }
         } else {
-            // there isn't a render group at this chunk's position yet, but it will be created
+            // there isn't a batch at this chunk's position yet, but it will be created
             // once the chunk's mesh is finished
             if !self
                 .meshing_tasks
@@ -517,7 +556,7 @@ impl TerrainRenderer {
 
                 let translation = chunk_pos
                     .as_ivec3()
-                    .rem_euclid(IVec3::splat(RENDER_GROUP_SIZE as i32))
+                    .rem_euclid(IVec3::splat(CHUNK_BATCH_SIZE as i32))
                     * CHUNK_SIZE_I32;
 
                 let vertices = meshing::mesh_greedy(ChunkMeshInput {
@@ -556,38 +595,35 @@ impl TerrainRenderer {
             return;
         }
 
-        let (group_pos, chunk_pos_in_group) = Self::get_group_pos_and_chunk_pos_in_group(chunk_pos);
+        let (group_pos, chunk_pos_in_group) = Self::get_group_pos_and_chunk_pos_in_batch(chunk_pos);
 
-        let group = self.get_or_add_group(group_pos, &cx.device);
+        let group = self.get_or_add_batch(group_pos, &cx.device);
 
         if group.set_mesh_data_for_chunk(chunk_pos_in_group, mesh_data) {
-            self.render_groups_requiring_mesh_updates
+            self.batches_requiring_mesh_updates
                 .push(group_pos);
         }
     }
 
-    /// Create a new render group and add it to the active groups
+    /// Create a new batch and add it to the active groups
     /// Returns the new group
-    fn add_new_group(&mut self, group_pos: IVec3, device: &wgpu::Device) -> &mut ChunkRenderGroup {
+    fn add_new_batch(&mut self, group_pos: IVec3, device: &wgpu::Device) -> &mut ChunkBatch {
+        debug_assert!(!self.batches.contains_key(&group_pos));
         debug_assert!(!self
-            .active_groups
-            .contains_key(&group_pos));
-        debug_assert!(!self
-            .active_group_positions
+            .batch_positions
             .contains(&group_pos));
 
-        let mut group =
-            ChunkRenderGroup::new(group_pos, device, &self.render_group_bind_group_layout);
+        let mut group = ChunkBatch::new(group_pos, device, &self.batch_bind_group_layout);
 
         // inform the group about which chunks are already generating
         for (x, y, z) in itertools::iproduct!(
-            (0..RENDER_GROUP_SIZE as u32),
-            (0..RENDER_GROUP_SIZE as u32),
-            (0..RENDER_GROUP_SIZE as u32)
+            (0..CHUNK_BATCH_SIZE as u32),
+            (0..CHUNK_BATCH_SIZE as u32),
+            (0..CHUNK_BATCH_SIZE as u32)
         ) {
             let chunk_pos_in_group = UVec3::new(x, y, z);
             let chunk_pos = ChunkPos::from(
-                group_pos * (RENDER_GROUP_SIZE as i32) + chunk_pos_in_group.as_ivec3(),
+                group_pos * (CHUNK_BATCH_SIZE as i32) + chunk_pos_in_group.as_ivec3(),
             );
             if self
                 .meshing_tasks
@@ -597,60 +633,51 @@ impl TerrainRenderer {
             }
         }
 
-        self.active_group_positions
-            .push(group_pos);
-        self.active_groups
-            .insert(group_pos, group);
+        self.batch_positions.push(group_pos);
+        self.batches.insert(group_pos, group);
 
-        self.active_groups
+        self.batches
             .get_mut(&group_pos)
             .expect("group should exist as it was just created")
     }
 
-    /// Remove a render group from the active groups
+    /// Remove a batch from the active groups
     /// Panics if the group does not exist
-    fn remove_group(&mut self, group_pos: IVec3) {
+    fn remove_batch(&mut self, group_pos: IVec3) {
+        debug_assert!(self.batches.contains_key(&group_pos));
         debug_assert!(self
-            .active_groups
-            .contains_key(&group_pos));
-        debug_assert!(self
-            .active_group_positions
+            .batch_positions
             .contains(&group_pos));
 
-        self.active_groups.remove(&group_pos);
-        self.active_group_positions.remove(
-            self.active_group_positions
+        self.batches.remove(&group_pos);
+        self.batch_positions.remove(
+            self.batch_positions
                 .iter()
                 .position(|x| *x == group_pos)
-                .expect("position of chunk render group being removed should be in `active_group_positions`"),
+                .expect(
+                    "position of chunk batch being removed should be in `active_group_positions`",
+                ),
         );
     }
 
-    /// Returns a mutable reference to the render group at the given position, creating it if it
+    /// Returns a mutable reference to the batch at the given position, creating it if it
     /// does not exist
-    fn get_or_add_group(
-        &mut self,
-        group_pos: IVec3,
-        device: &wgpu::Device,
-    ) -> &mut ChunkRenderGroup {
-        if self
-            .active_groups
-            .contains_key(&group_pos)
-        {
-            self.active_groups
+    fn get_or_add_batch(&mut self, group_pos: IVec3, device: &wgpu::Device) -> &mut ChunkBatch {
+        if self.batches.contains_key(&group_pos) {
+            self.batches
                 .get_mut(&group_pos)
                 .unwrap()
         } else {
-            self.add_new_group(group_pos, device)
+            self.add_new_batch(group_pos, device)
         }
     }
 
-    /// Given a chunk position, returns the position of its render group in the grid and the
-    /// position of the chunk in the render group
-    fn get_group_pos_and_chunk_pos_in_group(chunk_pos: ChunkPos) -> (IVec3, UVec3) {
+    /// Given a chunk position, returns the position of its batch in the grid and the
+    /// position of the chunk in the batch
+    fn get_group_pos_and_chunk_pos_in_batch(chunk_pos: ChunkPos) -> (IVec3, UVec3) {
         let chunk_pos = chunk_pos.as_ivec3();
-        let group_pos = chunk_pos.div_euclid(IVec3::splat(RENDER_GROUP_SIZE as i32));
-        let chunk_pos_in_group = chunk_pos - group_pos * (RENDER_GROUP_SIZE as i32);
+        let group_pos = chunk_pos.div_euclid(IVec3::splat(CHUNK_BATCH_SIZE as i32));
+        let chunk_pos_in_group = chunk_pos - group_pos * (CHUNK_BATCH_SIZE as i32);
 
         (group_pos, chunk_pos_in_group.as_uvec3())
     }
@@ -695,7 +722,7 @@ enum ChunkMeshStatus {
 
 #[derive(Debug)]
 struct ChunkMeshData {
-    pub vertices: Vec<TerrainVertex>,
+    pub vertices: Vec<ChunkVertex>,
     pub queued_instant: Instant,
 }
 

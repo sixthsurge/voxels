@@ -18,10 +18,11 @@ use winit::{
     error::EventLoopError,
     event::{DeviceEvent, DeviceId, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::KeyCode,
     window::{Window, WindowId},
 };
 
-use crate::{block::BLOCK_DIRT, terrain::position_types::GlobalBlockPos};
+use crate::{block::BLOCK_WOOD, terrain::position_types::GlobalBlockPos};
 
 mod block;
 mod fly_camera;
@@ -76,7 +77,7 @@ impl State {
             .load_areas_mut()
             .insert(LoadArea::new(
                 ChunkPos::ZERO,
-                Size3::new(41, 8, 41),
+                Size3::new(8, 8, 8),
                 terrain::load_area::AreaShape::Cylindrical,
             ));
         let render_engine = RenderEngine::new(
@@ -130,6 +131,14 @@ impl State {
                 .unwrap();
         }
 
+        if self
+            .input
+            .is_key_just_pressed(KeyCode::KeyC)
+        {
+            self.fly_camera.position.x *= 2.0;
+            log::info!("{}", self.fly_camera.position.x);
+        }
+
         // display framerate in window title
         self.window.set_title(&format!(
             "{} ({} fps)",
@@ -173,7 +182,7 @@ impl State {
                         self.terrain.set_block(
                             self.load_area_index,
                             &(hit.hit_pos + GlobalBlockPos::from(hit_normal)),
-                            BLOCK_DIRT,
+                            BLOCK_WOOD,
                         );
                     }
                 }
