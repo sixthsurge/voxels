@@ -1,3 +1,5 @@
+use glam::IVec3;
+
 use self::model::{BlockFace, BlockModel};
 
 pub mod model;
@@ -10,6 +12,7 @@ pub struct BlockId(pub u16);
 #[derive(Clone, Debug)]
 pub struct Block {
     pub model: BlockModel,
+    pub emission: IVec3,
 }
 
 // ----------------------------------------------------------------------------
@@ -19,12 +22,14 @@ pub const BLOCK_AIR: BlockId = BlockId(0);
 pub const BLOCK_DIRT: BlockId = BlockId(1);
 pub const BLOCK_GRASS: BlockId = BlockId(2);
 pub const BLOCK_WOOD: BlockId = BlockId(3);
-pub const BLOCK_COUNT: usize = 4;
+pub const BLOCK_LAMP_ORANGE: BlockId = BlockId(4);
+pub const BLOCK_COUNT: usize = 5;
 
 pub const BLOCKS: [Block; BLOCK_COUNT] = [
     // Air
     Block {
         model: BlockModel::Empty,
+        emission: IVec3::ZERO,
     },
     // Dirt
     Block {
@@ -36,6 +41,7 @@ pub const BLOCKS: [Block; BLOCK_COUNT] = [
             BlockFace { texture_index: 0 },
             BlockFace { texture_index: 0 },
         ]),
+        emission: IVec3::ZERO,
     },
     // Grass
     Block {
@@ -47,6 +53,7 @@ pub const BLOCKS: [Block; BLOCK_COUNT] = [
             BlockFace { texture_index: 0 },
             BlockFace { texture_index: 1 },
         ]),
+        emission: IVec3::ZERO,
     },
     // Wood
     Block {
@@ -58,5 +65,18 @@ pub const BLOCKS: [Block; BLOCK_COUNT] = [
             BlockFace { texture_index: 3 },
             BlockFace { texture_index: 3 },
         ]),
+        emission: IVec3::ZERO,
+    },
+    // Orange lamp
+    Block {
+        model: BlockModel::FullBlock([
+            BlockFace { texture_index: 4 },
+            BlockFace { texture_index: 4 },
+            BlockFace { texture_index: 4 },
+            BlockFace { texture_index: 4 },
+            BlockFace { texture_index: 4 },
+            BlockFace { texture_index: 4 },
+        ]),
+        emission: IVec3::new(15, 10, 5),
     },
 ];

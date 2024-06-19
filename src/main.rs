@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use block::BLOCK_AIR;
+use block::{BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LAMP_ORANGE};
 use fly_camera::FlyCamera;
 use generational_arena::Index;
 use input::Input;
@@ -74,7 +74,7 @@ impl State {
             .load_areas_mut()
             .insert(LoadArea::new(
                 ChunkPos::ZERO,
-                Size3::new(8, 8, 8),
+                Size3::new(40, 16, 40),
                 terrain::load_area::AreaShape::Cylindrical,
             ));
         let render_engine = RenderEngine::new(
@@ -152,14 +152,23 @@ impl State {
             .camera_mut()
             .transform = self.fly_camera.get_transform();
 
-        // block breaking and placing
+        // block breaking and placing (TEMP)
         let destroy = self
             .input
             .is_mouse_button_just_pressed(MouseButton::Left);
-        let place = self
+        let place_dirt = self
             .input
-            .is_mouse_button_just_pressed(MouseButton::Right);
-        if destroy || place {
+            .is_key_just_pressed(KeyCode::Digit1);
+        let place_grass = self
+            .input
+            .is_key_just_pressed(KeyCode::Digit2);
+        let place_wood = self
+            .input
+            .is_key_just_pressed(KeyCode::Digit3);
+        let place_lamp = self
+            .input
+            .is_key_just_pressed(KeyCode::Digit4);
+        if destroy || place_dirt || place_grass || place_wood || place_lamp {
             let look_dir = self.render_engine.camera().look_dir(); // bad coupling
 
             let hit = self.terrain.raymarch(
@@ -174,12 +183,39 @@ impl State {
                     self.terrain
                         .set_block(self.load_area_index, &hit.hit_pos, BLOCK_AIR);
                 }
-                if place {
+                if place_dirt {
+                    if let Some(hit_normal) = hit.hit_normal {
+                        self.terrain.set_block(
+                            self.load_area_index,
+                            &(hit.hit_pos + GlobalBlockPos::from(hit_normal)),
+                            BLOCK_DIRT,
+                        );
+                    }
+                }
+                if place_grass {
+                    if let Some(hit_normal) = hit.hit_normal {
+                        self.terrain.set_block(
+                            self.load_area_index,
+                            &(hit.hit_pos + GlobalBlockPos::from(hit_normal)),
+                            BLOCK_GRASS,
+                        );
+                    }
+                }
+                if place_wood {
                     if let Some(hit_normal) = hit.hit_normal {
                         self.terrain.set_block(
                             self.load_area_index,
                             &(hit.hit_pos + GlobalBlockPos::from(hit_normal)),
                             BLOCK_WOOD,
+                        );
+                    }
+                }
+                if place_lamp {
+                    if let Some(hit_normal) = hit.hit_normal {
+                        self.terrain.set_block(
+                            self.load_area_index,
+                            &(hit.hit_pos + GlobalBlockPos::from(hit_normal)),
+                            BLOCK_LAMP_ORANGE,
                         );
                     }
                 }

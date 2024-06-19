@@ -70,6 +70,7 @@ impl TerrainRenderer {
                 "assets/image/block/grass_side.png",
                 "assets/image/block/grass_top.png",
                 "assets/image/block/wood.png",
+                "assets/image/block/lamp_orange.png",
             ],
             image::ImageFormat::Png,
             &TextureConfig {
