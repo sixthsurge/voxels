@@ -14,10 +14,11 @@ use super::{
     ChunkMeshData, ChunkMeshStatus,
 };
 use crate::{
+    block::BLOCK_AIR,
     render::render_context::RenderContext,
     tasks::{TaskId, TaskPriority, Tasks},
     terrain::{
-        chunk::{side::ChunkSide, Chunk, CHUNK_SIZE, CHUNK_SIZE_I32},
+        chunk::{side::ChunkSide, storage::ChunkBlockStorage, Chunk, CHUNK_SIZE, CHUNK_SIZE_I32},
         load_area::LoadArea,
         position_types::ChunkPos,
         Terrain,
@@ -447,6 +448,20 @@ impl ChunkBatches {
         priority: i32,
     ) {
         let queued_instant = Instant::now();
+
+        // skip meshing air chunks
+        if let ChunkBlockStorage::Uniform(block_id) = chunk.get_block_storage() {
+            log::info!("skipped meshing an air chunk");
+            if *block_id == BLOCK_AIR {
+                let _ = self.finished_mesh_tx.send((
+                    chunk.pos(),
+                    ChunkMeshData {
+                        vertices: Vec::new(),
+                        queued_instant,
+                    },
+                ));
+            }
+        }
 
         let finished_mesh_tx = self.finished_mesh_tx.clone();
 

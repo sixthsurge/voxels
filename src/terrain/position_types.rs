@@ -1,7 +1,6 @@
 use derive_more::{Add, From, Sub};
 use glam::{IVec3, UVec3, Vec3};
 
-
 use super::chunk::{CHUNK_SIZE, CHUNK_SIZE_I32, CHUNK_SIZE_LOG2, CHUNK_SIZE_U32};
 
 /// Position of a block in the world
@@ -46,8 +45,8 @@ impl LocalBlockPos {
     pub fn from_array_index(block_index: usize) -> Self {
         Self(UVec3::new(
             ((block_index >> (0 * CHUNK_SIZE_LOG2)) & (CHUNK_SIZE - 1)) as u32,
-            ((block_index >> (1 * CHUNK_SIZE_LOG2)) & (CHUNK_SIZE - 1)) as u32,
             ((block_index >> (2 * CHUNK_SIZE_LOG2)) & (CHUNK_SIZE - 1)) as u32,
+            ((block_index >> (1 * CHUNK_SIZE_LOG2)) & (CHUNK_SIZE - 1)) as u32,
         ))
     }
 
@@ -58,7 +57,7 @@ impl LocalBlockPos {
     }
 
     pub fn get_array_index(&self) -> usize {
-        ((CHUNK_SIZE_U32 * CHUNK_SIZE_U32) * self.0.z + CHUNK_SIZE_U32 * self.0.y + self.0.x)
+        ((CHUNK_SIZE_U32 * CHUNK_SIZE_U32) * self.0.y + CHUNK_SIZE_U32 * self.0.z + self.0.x)
             as usize
     }
 

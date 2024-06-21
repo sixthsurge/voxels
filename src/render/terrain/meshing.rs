@@ -495,7 +495,7 @@ pub fn generate_indices(vertex_count: usize) -> Vec<u32> {
 }
 
 fn uvec3_to_chunk_index(pos: UVec3) -> usize {
-    ((CHUNK_SIZE_U32 * CHUNK_SIZE_U32) * pos.z + CHUNK_SIZE_U32 * pos.y + pos.x) as usize
+    ((CHUNK_SIZE_U32 * CHUNK_SIZE_U32) * pos.y + CHUNK_SIZE_U32 * pos.z + pos.x) as usize
 }
 
 mod face_dir {

@@ -30,6 +30,23 @@ where
         }
     }
 
+    /// Create a `DictionaryEncodedArray` with one element repeated
+    pub fn repeat(len: usize, element: T) -> Self {
+        let dictionary = Dictionary {
+            entries: vec![element.clone()],
+            index_lookup: [(element.clone(), 0)]
+                .into_iter()
+                .collect(),
+        };
+        let buffer = BitSizedIntegerBuffer {
+            data: BitVec::new(),
+            element_size: 0,
+            len,
+        };
+
+        Self { buffer, dictionary }
+    }
+
     /// Returns the element at the given index in the `DictionaryEncodedArray`, or an `IndexError` if
     /// the index is out of bounds.
     /// This operation is O(1)
