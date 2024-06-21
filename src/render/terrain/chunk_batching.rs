@@ -467,7 +467,7 @@ impl ChunkBatches {
 
         // prepare a snapshot of data about the chunk to be passed to the meshing thread
         let chunk_pos = chunk.pos();
-        let blocks = chunk.as_block_array();
+        let blocks = chunk.get_block_storage().clone();
         let surrounding_sides =
             ChunkSide::get_surrounding_sides(chunk_pos, terrain, load_area_index);
 
@@ -482,6 +482,7 @@ impl ChunkBatches {
             move || {
                 // move `blocks` and `surrounding sides` to the new thread
                 let (blocks, surrounding_sides) = (blocks, surrounding_sides);
+                let blocks = blocks.as_block_array();
 
                 let translation = chunk_pos
                     .as_ivec3()

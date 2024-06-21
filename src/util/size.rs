@@ -39,7 +39,7 @@ impl Size2 {
     }
 
     /// Flatten a 2D grid position into an index into a 1D array ordered by y then x
-    pub const fn flatten(&self, pos: UVec3) -> usize {
+    pub const fn flatten(&self, pos: UVec2) -> usize {
         let x = pos.x as usize;
         let y = pos.y as usize;
         self.x * y + x

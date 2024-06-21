@@ -375,7 +375,7 @@ impl TerrainRenderer {
     }
 
     /// Called when a block in a chunk has been modified
-    fn chunk_modified(&mut self, chunk_pos: &ChunkPos, block_pos: &LocalBlockPos) {
+    fn chunk_modified(&mut self, chunk_pos: &ChunkPos, _block_pos: &LocalBlockPos) {
         let (batch_pos, chunk_pos_in_batch) =
             ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(chunk_pos);
 

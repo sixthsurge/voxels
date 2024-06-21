@@ -2,7 +2,7 @@ use generational_arena::Index;
 
 use super::{
     camera::{Camera, Projection},
-    frustum_culling::{self, FrustumCullingRegions},
+    frustum_culling::{FrustumCullingRegions},
     render_context::RenderContext,
     terrain::{TerrainCullMode, TerrainRenderer},
     util::{

@@ -1,19 +1,15 @@
-use std::f32::INFINITY;
+
 
 use derive_more::IsVariant;
-use generational_arena::{Arena, Index};
-use glam::{IVec3, Vec3, Vec3Swizzles};
+use generational_arena::{Index};
+use glam::{Vec3, Vec3Swizzles};
 
 use super::{
-    chunk::Chunk,
-    position_types::{ChunkPos, GlobalBlockPos},
-    Terrain,
+    position_types::{ChunkPos},
 };
 use crate::{
-    block::BlockId,
-    terrain::chunk::CHUNK_SIZE,
     util::{
-        size::{AsSize3, Size3},
+        size::{Size3},
         vector_map::VectorMapExt,
     },
 };

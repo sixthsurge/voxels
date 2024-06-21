@@ -1,6 +1,6 @@
 use derive_more::{Add, From, Sub};
 use glam::{IVec3, UVec3, Vec3};
-use wgpu::core::device::global;
+
 
 use super::chunk::{CHUNK_SIZE, CHUNK_SIZE_I32, CHUNK_SIZE_LOG2, CHUNK_SIZE_U32};
 

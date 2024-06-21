@@ -225,7 +225,7 @@ impl ArrayTexture {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         paths: &[impl AsRef<Path>],
-        image_format: image::ImageFormat,
+        _image_format: image::ImageFormat,
         config: &TextureConfig,
     ) -> Result<Self, ArrayTextureError> {
         // load images

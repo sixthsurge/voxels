@@ -3,24 +3,25 @@ use std::sync::Arc;
 use glam::{IVec3, Vec3};
 
 use self::{
-    block_storage::ChunkBlockStorage, light_storage::ChunkLightStorage,
+    storage::{ChunkBlockStorage, ChunkLightStorage},
     visibility_graph::VisibilityGraph,
 };
-use super::{
-    lighting::PackedLightLevels,
-    position_types::{ChunkPos, LocalBlockPos},
-};
+use super::position_types::{ChunkPos, LocalBlockPos};
 use crate::{
     block::{BlockId, BLOCK_AIR},
-    util::{size::Size3, vector_map::VectorMapExt},
+    util::{
+        size::{Size2, Size3},
+        vector_map::VectorMapExt,
+    },
 };
 
-pub mod block_storage;
-pub mod light_storage;
 pub mod side;
+pub mod storage;
 pub mod visibility_graph;
 
 pub const CHUNK_SIZE: usize = 32;
+pub const CHUNK_SIZE_2D: Size2 = Size2::splat(CHUNK_SIZE);
+pub const CHUNK_SIZE_3D: Size3 = Size3::splat(CHUNK_SIZE);
 pub const CHUNK_SIZE_LOG2: usize = 5;
 pub const CHUNK_SIZE_SQUARED: usize = (CHUNK_SIZE_U32 * CHUNK_SIZE_U32) as usize;
 pub const CHUNK_SIZE_CUBED: usize = (CHUNK_SIZE_U32 * CHUNK_SIZE_U32 * CHUNK_SIZE_U32) as usize;
@@ -31,8 +32,7 @@ pub const CHUNK_SIZE_RECIP: f32 = 1.0 / (CHUNK_SIZE as f32);
 #[derive(Clone, Debug)]
 pub struct Chunk {
     pos: ChunkPos,
-    block_storage: ChunkBlockStorage,
-    light_storage: ChunkLightStorage,
+    blocks: ChunkBlockStorage,
     visibility_graph: VisibilityGraph,
     is_empty: bool,
 }
@@ -46,26 +46,23 @@ impl Chunk {
             .iter()
             .all(|&block_id| block_id == BLOCK_AIR);
 
-        let light_levels = vec![PackedLightLevels::ZERO; CHUNK_SIZE_CUBED];
-
         Self {
             pos,
-            block_storage: ChunkBlockStorage::new(blocks),
-            light_storage: ChunkLightStorage::new(light_levels),
+            blocks: ChunkBlockStorage::new(blocks),
             visibility_graph,
             is_empty,
         }
     }
 
-    /// Returns the chunk data as an array of block IDs
-    pub fn as_block_array(&self) -> Arc<[BlockId]> {
-        self.block_storage.as_block_array()
+    /// Returns the underlying block storage
+    pub fn get_block_storage(&self) -> &ChunkBlockStorage {
+        &self.blocks
     }
 
     /// Returns the block ID at the given position.
     /// Panics if the position is out of bounds
     pub fn get_block(&self, pos: LocalBlockPos) -> BlockId {
-        self.block_storage.get_block(pos)
+        self.blocks.get_block(pos)
     }
 
     /// Returns the block ID at the given position.
@@ -74,8 +71,7 @@ impl Chunk {
         if new_id != BLOCK_AIR {
             self.is_empty = false;
         }
-        self.block_storage
-            .set_block(pos, new_id)
+        self.blocks.set_block(pos, new_id)
     }
 
     /// Returns this chunk's position

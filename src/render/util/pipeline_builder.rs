@@ -119,7 +119,7 @@ impl<'a> RenderPipelineBuilder<'a> {
         self
     }
 
-    pub fn with_vertex<V>(mut self) -> Self
+    pub fn with_vertex<V>(self) -> Self
     where
         V: Vertex,
     {

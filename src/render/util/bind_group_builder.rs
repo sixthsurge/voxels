@@ -1,4 +1,4 @@
-use wgpu::hal::AccelerationStructureTriangleTransform;
+
 
 /// Helper struct to construct bind groups and bind group layouts together using the builder
 /// pattern

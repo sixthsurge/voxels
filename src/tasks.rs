@@ -161,7 +161,7 @@ impl Tasks {
                 .pending_tasks
                 .iter()
                 .enumerate()
-                .map(|(index, (task_id, task))| (index, task))
+                .map(|(index, (_task_id, task))| (index, task))
                 .min_by(|(_, task_a), (_, task_b)| task_a.priority.cmp(&task_b.priority))
                 .expect("tasks should not be empty")
                 .0;

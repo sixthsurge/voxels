@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use glam::{IVec3, UVec3};
+use glam::{UVec3};
 
 use crate::{
     block::{BlockId, BLOCKS},
