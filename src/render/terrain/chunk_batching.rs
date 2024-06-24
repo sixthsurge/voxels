@@ -23,7 +23,7 @@ use crate::{
         position_types::ChunkPosition,
         Terrain,
     },
-    util::size::Size3,
+    util::{measure_time::measure_time, size::Size3},
 };
 
 /// Size of one chunk batch on each axis, in chunks
@@ -91,16 +91,14 @@ impl ChunkBatch {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
-        let uniform_bind_group = cx
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Chunk Batch Uniforms Bind Group"),
-                layout: uniform_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buffer.as_entire_binding(),
-                }],
-            });
+        let uniform_bind_group = cx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Chunk Batch Uniforms Bind Group"),
+            layout: uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
 
         let chunk_mesh_data = array_init::array_init(|_| None);
         let chunk_mesh_status = array_init::array_init(|_| ChunkMeshStatus::Missing);
@@ -219,14 +217,10 @@ impl ChunkBatch {
             .for_each(|mesh_data| vertices.extend_from_slice(&mesh_data.vertices));
 
         // see if we can reuse the existing vertex buffer
-        if let Some(old_vertex_buffer) = self
-            .vertex_buffer
-            .as_ref()
-            .filter(|old_vertex_buffer| {
-                self.vertex_count * std::mem::size_of::<TerrainVertex>()
-                    <= old_vertex_buffer.size() as usize
-            })
-        {
+        if let Some(old_vertex_buffer) = self.vertex_buffer.as_ref().filter(|old_vertex_buffer| {
+            self.vertex_count * std::mem::size_of::<TerrainVertex>()
+                <= old_vertex_buffer.size() as usize
+        }) {
             queue.write_buffer(&old_vertex_buffer, 0, bytemuck::cast_slice(&vertices));
         } else {
             self.vertex_buffer = Some(device.create_buffer_init(
@@ -467,9 +461,7 @@ impl ChunkBatches {
         let (batch_pos, chunk_pos_in_batch) =
             Self::get_batch_pos_and_chunk_pos_in_batch(&chunk.position());
 
-        let batch = self
-            .get_batch_mut(&batch_pos)
-            .expect("batch should exist");
+        let batch = self.get_batch_mut(&batch_pos).expect("batch should exist");
 
         // if we already issued a task to generate this mesh, cancel it
         match batch.get_chunk_mesh_status(&chunk_pos_in_batch) {

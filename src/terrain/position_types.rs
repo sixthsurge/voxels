@@ -32,6 +32,18 @@ impl GlobalBlockPosition {
 
         (local_pos, chunk_pos)
     }
+
+    pub fn x(&self) -> i32 {
+        self.0.x
+    }
+
+    pub fn y(&self) -> i32 {
+        self.0.y
+    }
+
+    pub fn z(&self) -> i32 {
+        self.0.z
+    }
 }
 
 /// Position of a block in a chunk
@@ -86,6 +98,18 @@ impl LocalBlockPosition {
             None
         }
     }
+
+    pub fn x(&self) -> u32 {
+        self.0.x
+    }
+
+    pub fn y(&self) -> u32 {
+        self.0.y
+    }
+
+    pub fn z(&self) -> u32 {
+        self.0.z
+    }
 }
 
 /// Position of a chunk in the world
@@ -105,5 +129,17 @@ impl ChunkPosition {
 
     pub fn as_vec3(&self) -> Vec3 {
         self.0.as_vec3()
+    }
+
+    pub fn x(&self) -> i32 {
+        self.0.x
+    }
+
+    pub fn y(&self) -> i32 {
+        self.0.y
+    }
+
+    pub fn z(&self) -> i32 {
+        self.0.z
     }
 }

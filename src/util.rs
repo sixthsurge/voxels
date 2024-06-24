@@ -1,4 +1,3 @@
-pub mod dictionary_encoding;
 pub mod face;
 pub mod measure_time;
 pub mod size;

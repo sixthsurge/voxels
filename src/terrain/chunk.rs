@@ -1,9 +1,6 @@
 use glam::{IVec3, Vec3};
 
-use self::{
-    storage::{ChunkBlockStorage, ChunkLightStorage},
-    visibility_graph::VisibilityGraph,
-};
+use self::{storage::ChunkBlockStorage, visibility_graph::VisibilityGraph};
 use super::position_types::{ChunkPosition, LocalBlockPosition};
 use crate::{
     block::{BlockId, BLOCK_AIR},

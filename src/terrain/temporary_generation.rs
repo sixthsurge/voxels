@@ -5,7 +5,10 @@ use super::{
     chunk::{Chunk, CHUNK_SIZE, CHUNK_SIZE_CUBED, CHUNK_SIZE_U32},
     position_types::ChunkPosition,
 };
-use crate::block::{BlockId, BLOCK_DIRT, BLOCK_GRASS};
+use crate::{
+    block::{BlockId, BLOCK_DIRT, BLOCK_GRASS},
+    util::size::Size3,
+};
 
 pub fn generate_chunk(pos: ChunkPosition) -> Chunk {
     let mut blocks = vec![BlockId(0); CHUNK_SIZE_CUBED];
@@ -22,24 +25,30 @@ pub fn generate_chunk(pos: ChunkPosition) -> Chunk {
     cave_noise.set_fractal_octaves(3);
     cave_noise.set_frequency(0.03);
 
-    let mut index = 0;
     for z in 0..CHUNK_SIZE_U32 {
-        for y in 0..CHUNK_SIZE_U32 {
-            for x in 0..CHUNK_SIZE_U32 {
+        for x in 0..CHUNK_SIZE_U32 {
+            let pos_above = UVec3::new(x, CHUNK_SIZE_U32, z).as_vec3() + chunk_offset;
+            let noise_value_above = noise.get_noise3d(pos_above.x, pos_above.y, pos_above.z);
+            let mut solid_above = noise_value_above > pos_above.y * 0.01;
+
+            for y in 0..CHUNK_SIZE_U32 {
+                let y = CHUNK_SIZE_U32 - 1 - y;
+                let index = Size3::splat(CHUNK_SIZE).flatten(UVec3::new(x, z, y));
+
                 let pos = UVec3::new(x, y, z).as_vec3() + chunk_offset;
                 let noise_value = noise.get_noise3d(pos.x, pos.y, pos.z);
-                let noise_value_above = noise.get_noise3d(pos.x, pos.y + 1.0, pos.z);
-                if noise_value > (y as f32 + chunk_offset.y) * 0.01 {
+
+                if noise_value > pos.y * 0.01 {
                     let cave_noise = cave_noise.get_noise3d(pos.x, pos.y, pos.z);
                     if cave_noise < 0.4 {
-                        if noise_value_above > ((y + 1) as f32 + chunk_offset.y) * 0.01 {
+                        if solid_above {
                             blocks[index] = BLOCK_DIRT;
                         } else {
                             blocks[index] = BLOCK_GRASS;
                         }
                     }
+                    solid_above = true;
                 }
-                index += 1;
             }
         }
     }

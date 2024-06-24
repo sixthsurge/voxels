@@ -1,4 +1,3 @@
-chain_width = 40
 imports_granularity = "Crate"
 group_imports = "StdExternalCrate"
 
