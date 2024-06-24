@@ -20,7 +20,7 @@ use crate::{
     terrain::{
         chunk::{side::ChunkSide, storage::ChunkBlockStorage, Chunk, CHUNK_SIZE, CHUNK_SIZE_I32},
         load_area::LoadArea,
-        position_types::ChunkPos,
+        position_types::ChunkPosition,
         Terrain,
     },
     util::size::Size3,
@@ -54,7 +54,7 @@ pub struct ChunkBatch {
     /// was called
     vertex_buffer_needs_updating: bool,
     /// Current position of this batch in the grid of chunk batches
-    pos: IVec3,
+    position: IVec3,
     /// Combined vertex buffer for all chunks in this batch
     vertex_buffer: Option<wgpu::Buffer>,
     /// Number of vertices in `vertex_buffer`
@@ -107,7 +107,7 @@ impl ChunkBatch {
 
         Self {
             vertex_buffer_needs_updating: false,
-            pos,
+            position: pos,
             vertex_buffer: None,
             vertex_count: 0,
             chunk_mesh_data,
@@ -120,7 +120,7 @@ impl ChunkBatch {
     /// Reset this chunk batch so that it can be reused
     pub fn reset(&mut self, cx: &RenderContext, pos: IVec3) {
         self.vertex_buffer_needs_updating = false;
-        self.pos = pos;
+        self.position = pos;
         self.vertex_count = 0;
         self.chunk_mesh_data = array_init::array_init(|_| None);
         self.chunk_mesh_status = array_init::array_init(|_| ChunkMeshStatus::Missing);
@@ -289,9 +289,9 @@ pub struct ChunkBatches {
     /// Size of the grid of chunk batches
     batch_grid_size: Size3,
     /// Sender for finished chunk meshes
-    finished_mesh_tx: Sender<(ChunkPos, ChunkMeshData)>,
+    finished_mesh_tx: Sender<(ChunkPosition, ChunkMeshData)>,
     /// Receiver for finished chunk meshes
-    finished_mesh_rx: Receiver<(ChunkPos, ChunkMeshData)>,
+    finished_mesh_rx: Receiver<(ChunkPosition, ChunkMeshData)>,
     /// Bind group layout for uniforms specific to each chunk batch
     uniform_bind_group_layout: wgpu::BindGroupLayout,
     /// Shared index buffer for rendering chunk batches
@@ -334,7 +334,7 @@ impl ChunkBatches {
 
     /// Returns the position of the batch in the grid of batches containing the chunk and the
     /// position of the chunk in the batch
-    pub fn get_batch_pos_and_chunk_pos_in_batch(chunk_pos: &ChunkPos) -> (IVec3, UVec3) {
+    pub fn get_batch_pos_and_chunk_pos_in_batch(chunk_pos: &ChunkPosition) -> (IVec3, UVec3) {
         let chunk_pos = chunk_pos.as_ivec3();
         let batch_pos = chunk_pos.div_euclid(IVec3::splat(CHUNK_BATCH_SIZE as i32));
         let chunk_pos_in_batch = chunk_pos - batch_pos * (CHUNK_BATCH_SIZE as i32);
@@ -384,7 +384,7 @@ impl ChunkBatches {
         let index = self.get_batch_index(batch_pos);
         let batch = &self.batches[index];
 
-        if batch.pos == *batch_pos {
+        if batch.position == *batch_pos {
             Some(batch)
         } else {
             // the batch at this index is assigned to another position
@@ -398,7 +398,7 @@ impl ChunkBatches {
         let index = self.get_batch_index(batch_pos);
         let batch = &mut self.batches[index];
 
-        if batch.pos == *batch_pos {
+        if batch.position == *batch_pos {
             Some(batch)
         } else {
             // the batch at this index is assigned to another position
@@ -418,7 +418,7 @@ impl ChunkBatches {
         let index = self.get_batch_index(batch_pos);
         let batch = &mut self.batches[index];
 
-        if batch.pos != *batch_pos {
+        if batch.position != *batch_pos {
             // cancel any mesh generation tasks queued for this chunk batch
             for chunk_mesh_status in batch.chunk_mesh_status {
                 match chunk_mesh_status {
@@ -451,10 +451,9 @@ impl ChunkBatches {
 
         // skip meshing air chunks
         if let ChunkBlockStorage::Uniform(block_id) = chunk.get_block_storage() {
-            log::info!("skipped meshing an air chunk");
             if *block_id == BLOCK_AIR {
                 let _ = self.finished_mesh_tx.send((
-                    chunk.pos(),
+                    chunk.position(),
                     ChunkMeshData {
                         vertices: Vec::new(),
                         queued_instant,
@@ -466,7 +465,7 @@ impl ChunkBatches {
         let finished_mesh_tx = self.finished_mesh_tx.clone();
 
         let (batch_pos, chunk_pos_in_batch) =
-            Self::get_batch_pos_and_chunk_pos_in_batch(&chunk.pos());
+            Self::get_batch_pos_and_chunk_pos_in_batch(&chunk.position());
 
         let batch = self
             .get_batch_mut(&batch_pos)
@@ -481,7 +480,7 @@ impl ChunkBatches {
         }
 
         // prepare a snapshot of data about the chunk to be passed to the meshing thread
-        let chunk_pos = chunk.pos();
+        let chunk_pos = chunk.position();
         let blocks = chunk.get_block_storage().clone();
         let surrounding_sides =
             ChunkSide::get_surrounding_sides(chunk_pos, terrain, load_area_index);
@@ -538,7 +537,7 @@ impl ChunkBatches {
     fn finished_mesh_received(
         &mut self,
         loaded_area: &LoadArea,
-        chunk_pos: ChunkPos,
+        chunk_pos: ChunkPosition,
         mesh_data: ChunkMeshData,
     ) {
         // make sure that the chunk is still loaded

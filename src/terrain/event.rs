@@ -1,8 +1,8 @@
-use super::position_types::{ChunkPos, LocalBlockPos};
+use super::position_types::{ChunkPosition, LocalBlockPosition};
 
 #[derive(Clone, Debug)]
 pub enum TerrainEvent {
-    ChunkLoaded(ChunkPos),
-    ChunkUnloaded(ChunkPos),
-    BlockModified(ChunkPos, LocalBlockPos),
+    ChunkLoaded(ChunkPosition),
+    ChunkUnloaded(ChunkPosition),
+    BlockModified(ChunkPosition, LocalBlockPosition),
 }

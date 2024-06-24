@@ -1,12 +1,10 @@
-use std::sync::Arc;
-
 use glam::{IVec3, Vec3};
 
 use self::{
     storage::{ChunkBlockStorage, ChunkLightStorage},
     visibility_graph::VisibilityGraph,
 };
-use super::position_types::{ChunkPos, LocalBlockPos};
+use super::position_types::{ChunkPosition, LocalBlockPosition};
 use crate::{
     block::{BlockId, BLOCK_AIR},
     util::{
@@ -31,26 +29,21 @@ pub const CHUNK_SIZE_RECIP: f32 = 1.0 / (CHUNK_SIZE as f32);
 
 #[derive(Clone, Debug)]
 pub struct Chunk {
-    pos: ChunkPos,
+    pos: ChunkPosition,
     blocks: ChunkBlockStorage,
     visibility_graph: VisibilityGraph,
-    is_empty: bool,
 }
 
 impl Chunk {
-    pub fn new(pos: ChunkPos, blocks: Vec<BlockId>) -> Self {
+    pub fn new(pos: ChunkPosition, blocks: Vec<BlockId>) -> Self {
         // this function is called from a parallel thread so it's OK to perform intensive tasks
         // here
         let visibility_graph = VisibilityGraph::compute(&blocks);
-        let is_empty = blocks
-            .iter()
-            .all(|&block_id| block_id == BLOCK_AIR);
 
         Self {
             pos,
             blocks: ChunkBlockStorage::new(blocks),
             visibility_graph,
-            is_empty,
         }
     }
 
@@ -61,32 +54,24 @@ impl Chunk {
 
     /// Returns the block ID at the given position.
     /// Panics if the position is out of bounds
-    pub fn get_block(&self, pos: LocalBlockPos) -> BlockId {
+    pub fn get_block(&self, pos: LocalBlockPosition) -> BlockId {
         self.blocks.get_block(pos)
     }
 
     /// Returns the block ID at the given position.
     /// Panics if the position is out of bounds
-    pub fn set_block(&mut self, pos: LocalBlockPos, new_id: BlockId) {
-        if new_id != BLOCK_AIR {
-            self.is_empty = false;
-        }
+    pub fn set_block(&mut self, pos: LocalBlockPosition, new_id: BlockId) {
         self.blocks.set_block(pos, new_id)
     }
 
     /// Returns this chunk's position
-    pub fn pos(&self) -> ChunkPos {
+    pub fn position(&self) -> ChunkPosition {
         self.pos
     }
 
     /// Returns the computed visibility graph for this chunk
     pub fn visibility_graph(&self) -> VisibilityGraph {
         self.visibility_graph
-    }
-
-    /// True if the chunk comprises entirely of air blocks
-    pub fn is_empty(&self) -> bool {
-        self.is_empty
     }
 
     /// Marches through the chunk along the ray with the given origin and direction, using the DDA
@@ -97,7 +82,7 @@ impl Chunk {
         &self,
         ray_origin: Vec3,
         ray_direction: Vec3,
-        previous_chunk_pos: Option<ChunkPos>,
+        previous_chunk_pos: Option<ChunkPosition>,
         maximum_distance: f32,
     ) -> Option<ChunkHit> {
         pub const EPS: f32 = 1e-3;
@@ -106,7 +91,7 @@ impl Chunk {
         let dir_recip = ray_direction.recip();
 
         let mut t = 0.0;
-        let mut previous_block_pos: Option<LocalBlockPos> = None;
+        let mut previous_block_pos: Option<LocalBlockPosition> = None;
 
         while t < maximum_distance {
             let ray_pos = ray_origin + ray_direction * t;
@@ -117,7 +102,7 @@ impl Chunk {
                 return None;
             }
 
-            let block_pos = LocalBlockPos::from(block_pos.as_uvec3());
+            let block_pos = LocalBlockPosition::from(block_pos.as_uvec3());
             if self.get_block(block_pos) != BLOCK_AIR {
                 // hit a block
                 return Some(ChunkHit {
@@ -128,7 +113,7 @@ impl Chunk {
                         })
                         .or_else(|| {
                             previous_chunk_pos.map(|previous_chunk_pos| {
-                                previous_chunk_pos.as_ivec3() - self.pos().as_ivec3()
+                                previous_chunk_pos.as_ivec3() - self.position().as_ivec3()
                             })
                         }),
                 });
@@ -147,6 +132,6 @@ impl Chunk {
 
 /// Returned by `Chunk::raymarch` if a block was hit
 pub struct ChunkHit {
-    pub local_hit_pos: LocalBlockPos,
+    pub local_hit_pos: LocalBlockPosition,
     pub hit_normal: Option<IVec3>,
 }

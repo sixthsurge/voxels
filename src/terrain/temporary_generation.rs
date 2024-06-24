@@ -3,11 +3,11 @@ use glam::UVec3;
 
 use super::{
     chunk::{Chunk, CHUNK_SIZE, CHUNK_SIZE_CUBED, CHUNK_SIZE_U32},
-    position_types::ChunkPos,
+    position_types::ChunkPosition,
 };
 use crate::block::{BlockId, BLOCK_DIRT, BLOCK_GRASS};
 
-pub fn generate_chunk(pos: ChunkPos) -> Chunk {
+pub fn generate_chunk(pos: ChunkPosition) -> Chunk {
     let mut blocks = vec![BlockId(0); CHUNK_SIZE_CUBED];
 
     let chunk_offset = pos.as_vec3() * (CHUNK_SIZE as f32);

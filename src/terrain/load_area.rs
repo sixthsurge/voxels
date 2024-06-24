@@ -1,18 +1,9 @@
-
-
 use derive_more::IsVariant;
-use generational_arena::{Index};
+use generational_arena::Index;
 use glam::{Vec3, Vec3Swizzles};
 
-use super::{
-    position_types::{ChunkPos},
-};
-use crate::{
-    util::{
-        size::{Size3},
-        vector_map::VectorMapExt,
-    },
-};
+use super::position_types::ChunkPosition;
+use crate::util::{size::Size3, vector_map::VectorMapExt};
 
 /// An `LoadArea` represents a region of terrain that is loaded in memory.
 /// The `LoadArea` provides O(1) lookup for the chunks it contains
@@ -21,7 +12,7 @@ pub struct LoadArea {
     /// State of each chunk in the area
     chunk_states: Vec<ChunkState>,
     /// Position of the lower corner of the area in chunks
-    pos: ChunkPos,
+    position: ChunkPosition,
     /// Size of the area in chunks
     size: Size3,
     /// Shape of the area
@@ -35,10 +26,10 @@ pub struct LoadArea {
 }
 
 impl LoadArea {
-    pub fn new(pos: ChunkPos, size: Size3, shape: AreaShape) -> Self {
+    pub fn new(pos: ChunkPosition, size: Size3, shape: AreaShape) -> Self {
         Self {
             chunk_states: vec![ChunkState::Unloaded; size.product()],
-            pos,
+            position: pos,
             size,
             shape,
             state: LoadAreaState::Dirty,
@@ -50,7 +41,7 @@ impl LoadArea {
     /// If the given chunk position is within the bounds of this area and the chunk is loaded,
     /// returns index of the given chunk in the chunk arena.
     /// Otherwise returns None
-    pub fn get_chunk_index(&self, chunk_pos: &ChunkPos) -> Option<Index> {
+    pub fn get_chunk_index(&self, chunk_pos: &ChunkPosition) -> Option<Index> {
         self.get_array_index(chunk_pos)
             .and_then(|array_index| match self.chunk_states[array_index] {
                 ChunkState::Unloaded | ChunkState::Loading(_) => None,
@@ -65,7 +56,7 @@ impl LoadArea {
     }
 
     /// True if the given chunk in the area is loaded
-    pub fn is_loaded(&self, chunk_pos: &ChunkPos) -> bool {
+    pub fn is_loaded(&self, chunk_pos: &ChunkPosition) -> bool {
         self.get_array_index(chunk_pos)
             .map(|array_index| match self.chunk_states[array_index] {
                 ChunkState::Unloaded | ChunkState::Loading(_) => false,
@@ -75,7 +66,7 @@ impl LoadArea {
     }
 
     /// True if the given chunk in the area is currently loading
-    pub fn is_loading(&self, chunk_pos: &ChunkPos) -> bool {
+    pub fn is_loading(&self, chunk_pos: &ChunkPosition) -> bool {
         self.get_array_index(chunk_pos)
             .map(|array_index| match self.chunk_states[array_index] {
                 ChunkState::Unloaded | ChunkState::Loaded(_, _) => false,
@@ -86,7 +77,7 @@ impl LoadArea {
 
     /// True if the chunk at the given position is neither loaded or loading, or isn't contained in
     /// the area's bounds
-    pub fn is_unloaded(&self, chunk_pos: &ChunkPos) -> bool {
+    pub fn is_unloaded(&self, chunk_pos: &ChunkPosition) -> bool {
         self.get_array_index(chunk_pos)
             .map(|array_index| match self.chunk_states[array_index] {
                 ChunkState::Unloaded => true,
@@ -97,7 +88,7 @@ impl LoadArea {
     }
 
     /// True if the chunk position is contained by the area
-    pub fn is_within_area(&self, chunk_pos: &ChunkPos) -> bool {
+    pub fn is_within_area(&self, chunk_pos: &ChunkPosition) -> bool {
         if !self.is_within_bounds(chunk_pos) {
             return false;
         }
@@ -115,18 +106,18 @@ impl LoadArea {
     }
 
     /// True if the chunk position is contained by the bounding box of the area (faster test)
-    pub fn is_within_bounds(&self, chunk_pos: &ChunkPos) -> bool {
+    pub fn is_within_bounds(&self, chunk_pos: &ChunkPosition) -> bool {
         self.size
-            .contains_ivec3((*chunk_pos - self.pos).as_ivec3())
+            .contains_ivec3((*chunk_pos - self.position).as_ivec3())
     }
 
     /// Iterator over all chunk positions contained by the area
-    pub fn iter_positions<'a>(&'a self) -> impl Iterator<Item = ChunkPos> + 'a {
-        let lower = self.pos.as_ivec3();
-        let upper = self.pos.as_ivec3() + self.size.as_ivec3();
+    pub fn iter_positions<'a>(&'a self) -> impl Iterator<Item = ChunkPosition> + 'a {
+        let lower = self.position.as_ivec3();
+        let upper = self.position.as_ivec3() + self.size.as_ivec3();
 
         itertools::iproduct!(lower.x..upper.x, lower.y..upper.y, lower.z..upper.z)
-            .map(|(x, y, z)| ChunkPos::new(x, y, z))
+            .map(|(x, y, z)| ChunkPosition::new(x, y, z))
             .filter(|chunk_pos| self.is_within_area(&chunk_pos))
     }
 
@@ -136,8 +127,8 @@ impl LoadArea {
     }
 
     /// Position of the lower corner of this area in chunks
-    pub fn pos(&self) -> ChunkPos {
-        self.pos
+    pub fn position(&self) -> ChunkPosition {
+        self.position
     }
 
     /// Size of this area in chunks
@@ -157,10 +148,10 @@ impl LoadArea {
 
     /// Update the position of the lower corner of this area in chunks
     /// This will only mark the area as dirty if the new position is different
-    pub fn set_pos(&mut self, new_pos: ChunkPos) {
-        if new_pos != self.pos {
-            self.pos = new_pos;
-            self.center_pos = self.pos.as_vec3() + 0.5 * self.size.as_vec3();
+    pub fn set_pos(&mut self, new_pos: ChunkPosition) {
+        if new_pos != self.position {
+            self.position = new_pos;
+            self.center_pos = self.position.as_vec3() + 0.5 * self.size.as_vec3();
             self.state = LoadAreaState::Dirty;
         }
     }
@@ -177,12 +168,12 @@ impl LoadArea {
     /// Update the position of the center of this area in chunks
     /// This will only mark the area as dirty if the center has moved between chunks
     pub fn set_center(&mut self, center_pos: Vec3) {
-        let pos = ChunkPos::from(center_pos.floor().as_ivec3() - self.size.as_ivec3() / 2);
+        let pos = ChunkPosition::from(center_pos.floor().as_ivec3() - self.size.as_ivec3() / 2);
         self.set_pos(pos);
     }
 
     /// Called when a chunk within the area is loaded
-    pub(super) fn mark_loaded(&mut self, chunk_pos: &ChunkPos, chunk_index: Index) {
+    pub(super) fn mark_loaded(&mut self, chunk_pos: &ChunkPosition, chunk_index: Index) {
         let array_index = self
             .get_array_index(chunk_pos)
             .expect("chunk_pos should be within the load area's bounds");
@@ -191,7 +182,7 @@ impl LoadArea {
     }
 
     /// Called when a chunk within the area is queued for loading
-    pub(super) fn mark_loading(&mut self, chunk_pos: &ChunkPos) {
+    pub(super) fn mark_loading(&mut self, chunk_pos: &ChunkPosition) {
         let array_index = self
             .get_array_index(chunk_pos)
             .expect("chunk_pos should be within the load area's bounds");
@@ -200,7 +191,7 @@ impl LoadArea {
     }
 
     /// Called when a chunk within the area is unloaded
-    pub(super) fn mark_unloaded(&mut self, chunk_pos: &ChunkPos) {
+    pub(super) fn mark_unloaded(&mut self, chunk_pos: &ChunkPosition) {
         let array_index = self
             .get_array_index(chunk_pos)
             .expect("chunk_pos should be within the load area's bounds");
@@ -210,7 +201,7 @@ impl LoadArea {
 
     /// If the chunk position is within the area's bounds, returns the index in `self.chunks` for
     /// that chunk
-    fn get_array_index(&self, chunk_pos: &ChunkPos) -> Option<usize> {
+    fn get_array_index(&self, chunk_pos: &ChunkPosition) -> Option<usize> {
         if self.is_within_bounds(chunk_pos) {
             let grid_pos = chunk_pos
                 .as_ivec3()
@@ -235,9 +226,9 @@ pub enum ChunkState {
     /// The chunk is not loaded, loading or queued for loading
     Unloaded,
     /// The chunk is loading or queued for loading
-    Loading(ChunkPos),
+    Loading(ChunkPosition),
     /// Flatten a 2D grid position into an index in a 1D array ordered by y then x
-    Loaded(ChunkPos, Index),
+    Loaded(ChunkPosition, Index),
 }
 
 #[derive(Clone, Copy, Debug)]

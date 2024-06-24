@@ -7,7 +7,7 @@ use crate::{
     terrain::{
         chunk::{Chunk, CHUNK_SIZE},
         load_area::LoadArea,
-        position_types::ChunkPos,
+        position_types::ChunkPosition,
         Terrain,
     },
     util::face::{FaceIndex, FACE_NORMALS},
@@ -46,7 +46,7 @@ pub fn visibility_search<'terrain>(
     let mut seen = vec![false; load_area.size().product()];
 
     // start at the camera position
-    let camera_chunk_pos = ChunkPos::from(
+    let camera_chunk_pos = ChunkPosition::from(
         (camera_pos / (CHUNK_SIZE as f32))
             .floor()
             .as_ivec3(),
@@ -63,7 +63,7 @@ pub fn visibility_search<'terrain>(
 
     while let Some(&step) = step_queue.get(step_index) {
         // vector pointing towards the camera
-        let to_camera = (camera_chunk_pos - step.chunk.pos()).as_ivec3();
+        let to_camera = (camera_chunk_pos - step.chunk.position()).as_ivec3();
 
         // consider whether to explore the 6 neighbouring chunks
         step_queue.extend(
@@ -86,7 +86,12 @@ pub fn visibility_search<'terrain>(
                     }
                 })
                 // dir -> (dir, chunk_pos)
-                .map(|dir| (dir, step.chunk.pos() + ChunkPos::from(FACE_NORMALS[dir])))
+                .map(|dir| {
+                    (
+                        dir,
+                        step.chunk.position() + ChunkPosition::from(FACE_NORMALS[dir]),
+                    )
+                })
                 // make sure the chunk position is within the load area
                 .filter(|(_, chunk_pos)| load_area.is_within_bounds(chunk_pos))
                 // don't visit the same chunk twice
@@ -120,8 +125,8 @@ struct SearchStep<'a> {
 }
 
 /// Returns true if this is the first time the chunk was seen
-fn mark_seen(seen: &mut Vec<bool>, load_area: &LoadArea, chunk_pos: &ChunkPos) -> bool {
-    let position_in_grid = (*chunk_pos - load_area.pos()).as_ivec3();
+fn mark_seen(seen: &mut Vec<bool>, load_area: &LoadArea, chunk_pos: &ChunkPosition) -> bool {
+    let position_in_grid = (*chunk_pos - load_area.position()).as_ivec3();
 
     if load_area
         .size()

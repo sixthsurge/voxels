@@ -24,7 +24,7 @@ use crate::{
         chunk::Chunk,
         event::TerrainEvent,
         load_area::LoadArea,
-        position_types::{ChunkPos, LocalBlockPos},
+        position_types::{ChunkPosition, LocalBlockPosition},
         Terrain,
     },
     time::Time,
@@ -210,7 +210,7 @@ impl TerrainRenderer {
                 .chunks()
                 .iter()
                 .map(|(_, chunk)| chunk)
-                .filter(|chunk| frustum_culling_regions.is_chunk_within_frustum(&chunk.pos()))
+                .filter(|chunk| frustum_culling_regions.is_chunk_within_frustum(&chunk.position()))
                 .collect_vec(),
             TerrainCullMode::VisibilitySearch => visibility_search(
                 terrain,
@@ -271,7 +271,8 @@ impl TerrainRenderer {
         );
 
         for chunk in &render_queue {
-            let (batch_pos, _) = ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(&chunk.pos());
+            let (batch_pos, _) =
+                ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(&chunk.position());
             let batch_index = self
                 .chunk_batches
                 .get_batch_index(&batch_pos);
@@ -309,7 +310,7 @@ impl TerrainRenderer {
         camera_pos: Vec3,
     ) {
         let (batch_pos, chunk_pos_in_batch) =
-            ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(&chunk.pos());
+            ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(&chunk.position());
 
         let batch = self
             .chunk_batches
@@ -338,14 +339,14 @@ impl TerrainRenderer {
     /// Called when a chunk has been loaded to note that its neighbours' meshes can be optimized
     /// NB: this does not queue the chunk for mesh generation: its mesh will only be generated
     /// after it is requested
-    fn chunk_loaded(&mut self, chunk_pos: ChunkPos) {
+    fn chunk_loaded(&mut self, chunk_pos: ChunkPosition) {
         let neighbour_positions = [
-            chunk_pos + ChunkPos::new(1, 0, 0),
-            chunk_pos + ChunkPos::new(0, 1, 0),
-            chunk_pos + ChunkPos::new(0, 0, 1),
-            chunk_pos + ChunkPos::new(-1, 0, 0),
-            chunk_pos + ChunkPos::new(0, -1, 0),
-            chunk_pos + ChunkPos::new(0, 0, -1),
+            chunk_pos + ChunkPosition::new(1, 0, 0),
+            chunk_pos + ChunkPosition::new(0, 1, 0),
+            chunk_pos + ChunkPosition::new(0, 0, 1),
+            chunk_pos + ChunkPosition::new(-1, 0, 0),
+            chunk_pos + ChunkPosition::new(0, -1, 0),
+            chunk_pos + ChunkPosition::new(0, 0, -1),
         ];
         for neighbour_pos in neighbour_positions {
             let (batch_pos, chunk_pos_in_batch) =
@@ -362,7 +363,7 @@ impl TerrainRenderer {
 
     /// Called when a chunk has been unloaded to remove its mesh from the batch containing
     /// it
-    fn chunk_unloaded(&mut self, chunk_pos: ChunkPos) {
+    fn chunk_unloaded(&mut self, chunk_pos: ChunkPosition) {
         let (batch_pos, chunk_pos_in_batch) =
             ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(&chunk_pos);
 
@@ -375,7 +376,7 @@ impl TerrainRenderer {
     }
 
     /// Called when a block in a chunk has been modified
-    fn chunk_modified(&mut self, chunk_pos: &ChunkPos, _block_pos: &LocalBlockPos) {
+    fn chunk_modified(&mut self, chunk_pos: &ChunkPosition, _block_pos: &LocalBlockPosition) {
         let (batch_pos, chunk_pos_in_batch) =
             ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(chunk_pos);
 

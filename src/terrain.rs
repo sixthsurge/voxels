@@ -8,7 +8,7 @@ use self::{
     chunk::{Chunk, CHUNK_SIZE, CHUNK_SIZE_RECIP},
     event::TerrainEvent,
     load_area::{LoadArea, LoadAreaState},
-    position_types::{ChunkPos, GlobalBlockPos},
+    position_types::{ChunkPosition, GlobalBlockPosition},
 };
 use crate::{
     block::BlockId,
@@ -72,7 +72,7 @@ impl Terrain {
 
     /// If the chunk at the given position is loaded and within the specified load area, returns a
     /// shared reference to that chunk in the chunk arena. Otherwise returns None
-    pub fn get_chunk(&self, load_area_index: Index, chunk_pos: &ChunkPos) -> Option<&Chunk> {
+    pub fn get_chunk(&self, load_area_index: Index, chunk_pos: &ChunkPosition) -> Option<&Chunk> {
         let load_area = self
             .load_areas
             .get(load_area_index)
@@ -88,7 +88,7 @@ impl Terrain {
     pub fn get_chunk_mut(
         &mut self,
         load_area_index: Index,
-        chunk_pos: &ChunkPos,
+        chunk_pos: &ChunkPosition,
     ) -> Option<&mut Chunk> {
         let load_area = self
             .load_areas
@@ -105,7 +105,7 @@ impl Terrain {
     pub fn get_block(
         &self,
         load_area_index: Index,
-        global_block_pos: &GlobalBlockPos,
+        global_block_pos: &GlobalBlockPosition,
     ) -> Option<BlockId> {
         let (local_block_pos, chunk_pos) = global_block_pos.get_local_and_chunk_pos();
 
@@ -119,7 +119,7 @@ impl Terrain {
     pub fn set_block(
         &mut self,
         load_area_index: Index,
-        global_block_pos: &GlobalBlockPos,
+        global_block_pos: &GlobalBlockPosition,
         new_id: BlockId,
     ) -> bool {
         let (local_block_pos, chunk_pos) = global_block_pos.get_local_and_chunk_pos();
@@ -154,7 +154,7 @@ impl Terrain {
         while t < maximum_distance {
             let ray_pos = ray_origin + ray_direction * t;
 
-            let chunk_pos = ChunkPos::from(
+            let chunk_pos = ChunkPosition::from(
                 (ray_pos * CHUNK_SIZE_RECIP)
                     .floor()
                     .as_ivec3(),
@@ -169,7 +169,7 @@ impl Terrain {
                     maximum_distance - t,
                 ) {
                     return Some(TerrainHit {
-                        hit_pos: GlobalBlockPos::from_local_and_chunk_pos(
+                        hit_pos: GlobalBlockPosition::from_local_and_chunk_pos(
                             hit.local_hit_pos,
                             chunk_pos,
                         ),
@@ -256,7 +256,7 @@ impl Terrain {
                 .filter(|(_, chunk)| {
                     self.load_areas
                         .iter()
-                        .all(|(_, area)| !area.is_within_area(&chunk.pos()))
+                        .all(|(_, area)| !area.is_within_area(&chunk.position()))
                 })
                 .map(|(chunk_index, _)| chunk_index)
                 .collect_vec();
@@ -268,7 +268,7 @@ impl Terrain {
     }
 
     /// Spawn a task to begin loading a chunk
-    fn load_chunk(&mut self, tasks: &mut Tasks, chunk_pos: ChunkPos, camera_pos: Vec3) {
+    fn load_chunk(&mut self, tasks: &mut Tasks, chunk_pos: ChunkPosition, camera_pos: Vec3) {
         // don't load a chunk if it is already loaded or loading
         if self
             .load_areas
@@ -316,12 +316,12 @@ impl Terrain {
         if !self
             .load_areas
             .iter()
-            .any(|(_, area)| area.is_within_area(&chunk.pos()))
+            .any(|(_, area)| area.is_within_area(&chunk.position()))
         {
             return;
         }
 
-        let chunk_pos = chunk.pos();
+        let chunk_pos = chunk.position();
         let chunk_index = self.chunks.insert(chunk);
 
         // inform the load areas that the chunk is loaded
@@ -337,7 +337,7 @@ impl Terrain {
     /// Unload the chunk with the given position
     fn unload_chunk(&mut self, chunk_index: Index) {
         let chunk = &self.chunks[chunk_index];
-        let chunk_pos = chunk.pos();
+        let chunk_pos = chunk.position();
 
         // inform the load areas that the chunk is unloaded
         self.load_areas
@@ -347,7 +347,9 @@ impl Terrain {
 
         self.events
             .push(TerrainEvent::ChunkUnloaded(
-                self.chunks[chunk_index].pos().clone(),
+                self.chunks[chunk_index]
+                    .position()
+                    .clone(),
             ));
         self.chunks.remove(chunk_index);
     }
@@ -355,6 +357,6 @@ impl Terrain {
 
 /// Returned by `Terrain::raymarch` when a block is intersected
 pub struct TerrainHit {
-    pub hit_pos: GlobalBlockPos,
+    pub hit_pos: GlobalBlockPosition,
     pub hit_normal: Option<IVec3>,
 }

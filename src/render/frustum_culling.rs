@@ -1,7 +1,7 @@
 use glam::{IVec3, Mat4, UVec3, Vec3};
 
 use crate::{
-    terrain::{chunk::CHUNK_SIZE, position_types::ChunkPos},
+    terrain::{chunk::CHUNK_SIZE, position_types::ChunkPosition},
     util::size::Size3,
 };
 
@@ -62,7 +62,7 @@ impl FrustumCullingRegions {
     }
 
     /// True if the given chunk position is within the view frustum
-    pub fn is_chunk_within_frustum(&self, chunk_pos: &ChunkPos) -> bool {
+    pub fn is_chunk_within_frustum(&self, chunk_pos: &ChunkPosition) -> bool {
         let position_in_grid = (chunk_pos.as_ivec3() - self.grid_pos_in_chunks)
             .div_euclid(self.region_size_in_chunks.as_ivec3());
 

@@ -5,22 +5,25 @@ use super::chunk::{CHUNK_SIZE, CHUNK_SIZE_I32, CHUNK_SIZE_LOG2, CHUNK_SIZE_U32};
 
 /// Position of a block in the world
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Add, From, Sub)]
-pub struct GlobalBlockPos(IVec3);
+pub struct GlobalBlockPosition(IVec3);
 
-impl GlobalBlockPos {
+impl GlobalBlockPosition {
     pub const ZERO: Self = Self(IVec3::ZERO);
 
     pub fn new(x: i32, y: i32, z: i32) -> Self {
         Self(IVec3::new(x, y, z))
     }
 
-    pub fn from_local_and_chunk_pos(local_pos: LocalBlockPos, chunk_pos: ChunkPos) -> Self {
+    pub fn from_local_and_chunk_pos(
+        local_pos: LocalBlockPosition,
+        chunk_pos: ChunkPosition,
+    ) -> Self {
         (local_pos.0.as_ivec3() + chunk_pos.0 * CHUNK_SIZE_I32).into()
     }
 
     /// Given a global block position, return the position of the block within its chunk and the
     /// position of the chunk containing it
-    pub fn get_local_and_chunk_pos(&self) -> (LocalBlockPos, ChunkPos) {
+    pub fn get_local_and_chunk_pos(&self) -> (LocalBlockPosition, ChunkPosition) {
         let local_pos = (self.0 & (CHUNK_SIZE_I32 - 1))
             .as_uvec3()
             .into();
@@ -33,9 +36,9 @@ impl GlobalBlockPos {
 
 /// Position of a block in a chunk
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Add, From, Sub)]
-pub struct LocalBlockPos(UVec3);
+pub struct LocalBlockPosition(UVec3);
 
-impl LocalBlockPos {
+impl LocalBlockPosition {
     pub const ZERO: Self = Self(UVec3::ZERO);
 
     pub fn new(x: u32, y: u32, z: u32) -> Self {
@@ -50,7 +53,7 @@ impl LocalBlockPos {
         ))
     }
 
-    pub fn from_global_pos(global_pos: GlobalBlockPos) -> Self {
+    pub fn from_global_pos(global_pos: GlobalBlockPosition) -> Self {
         (global_pos.0 & (CHUNK_SIZE_I32 - 1))
             .as_uvec3()
             .into()
@@ -71,7 +74,7 @@ impl LocalBlockPos {
 
     /// If `self.0 + other` is a local block position, return it.
     /// Otherwise, return None
-    pub fn try_add(&self, other: IVec3) -> Option<LocalBlockPos> {
+    pub fn try_add(&self, other: IVec3) -> Option<LocalBlockPosition> {
         let sum = self.0.as_ivec3() + other;
         let not_underflow = sum.cmpge(IVec3::ZERO).all();
         let not_overflow = sum
@@ -87,9 +90,9 @@ impl LocalBlockPos {
 
 /// Position of a chunk in the world
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Add, From, Sub)]
-pub struct ChunkPos(IVec3);
+pub struct ChunkPosition(IVec3);
 
-impl ChunkPos {
+impl ChunkPosition {
     pub const ZERO: Self = Self(IVec3::ZERO);
 
     pub fn new(x: i32, y: i32, z: i32) -> Self {

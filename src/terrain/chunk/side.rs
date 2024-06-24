@@ -6,7 +6,7 @@ use super::{Chunk, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32};
 use crate::{
     block::BLOCKS,
     terrain::{
-        position_types::{ChunkPos, LocalBlockPos},
+        position_types::{ChunkPosition, LocalBlockPosition},
         Terrain,
     },
     util::face::FaceIndex,
@@ -29,7 +29,7 @@ impl ChunkSide {
 
         for v in 0..CHUNK_SIZE_U32 {
             for u in 0..CHUNK_SIZE_U32 {
-                let pos_in_chunk = LocalBlockPos::new(CHUNK_SIZE_U32 - 1, v, u);
+                let pos_in_chunk = LocalBlockPosition::new(CHUNK_SIZE_U32 - 1, v, u);
                 let block_id = chunk.get_block(pos_in_chunk);
                 let block = &BLOCKS[block_id.0 as usize];
                 faces[index] = block
@@ -51,7 +51,7 @@ impl ChunkSide {
 
         for v in 0..CHUNK_SIZE_U32 {
             for u in 0..CHUNK_SIZE_U32 {
-                let pos_in_chunk = LocalBlockPos::new(v, CHUNK_SIZE_U32 - 1, u);
+                let pos_in_chunk = LocalBlockPosition::new(v, CHUNK_SIZE_U32 - 1, u);
                 let block_id = chunk.get_block(pos_in_chunk);
                 let block = &BLOCKS[block_id.0 as usize];
                 faces[index] = block
@@ -73,7 +73,7 @@ impl ChunkSide {
 
         for v in 0..CHUNK_SIZE_U32 {
             for u in 0..CHUNK_SIZE_U32 {
-                let pos_in_chunk = LocalBlockPos::new(u, v, CHUNK_SIZE_U32 - 1);
+                let pos_in_chunk = LocalBlockPosition::new(u, v, CHUNK_SIZE_U32 - 1);
                 let block_id = chunk.get_block(pos_in_chunk);
                 let block = &BLOCKS[block_id.0 as usize];
                 faces[index] = block
@@ -95,7 +95,7 @@ impl ChunkSide {
 
         for v in 0..CHUNK_SIZE_U32 {
             for u in 0..CHUNK_SIZE_U32 {
-                let pos_in_chunk = LocalBlockPos::new(0, v, u);
+                let pos_in_chunk = LocalBlockPosition::new(0, v, u);
                 let block_id = chunk.get_block(pos_in_chunk);
                 let block = &BLOCKS[block_id.0 as usize];
                 faces[index] = block
@@ -117,7 +117,7 @@ impl ChunkSide {
 
         for v in 0..CHUNK_SIZE_U32 {
             for u in 0..CHUNK_SIZE_U32 {
-                let pos_in_chunk = LocalBlockPos::new(v, 0, u);
+                let pos_in_chunk = LocalBlockPosition::new(v, 0, u);
                 let block_id = chunk.get_block(pos_in_chunk);
                 let block = &BLOCKS[block_id.0 as usize];
                 faces[index] = block
@@ -139,7 +139,7 @@ impl ChunkSide {
 
         for v in 0..CHUNK_SIZE_U32 {
             for u in 0..CHUNK_SIZE_U32 {
-                let pos_in_chunk = LocalBlockPos::new(u, v, 0);
+                let pos_in_chunk = LocalBlockPosition::new(u, v, 0);
                 let block_id = chunk.get_block(pos_in_chunk);
                 let block = &BLOCKS[block_id.0 as usize];
                 faces[index] = block
@@ -157,27 +157,36 @@ impl ChunkSide {
 
     /// Returns the sides of all chunks surrounding `chunk_pos`
     pub fn get_surrounding_sides(
-        center_pos: ChunkPos,
+        center_pos: ChunkPosition,
         terrain: &Terrain,
         load_area_index: Index,
     ) -> Vec<Option<ChunkSide>> {
         let side_px = terrain
-            .get_chunk(load_area_index, &(center_pos + ChunkPos::new(1, 0, 0)))
+            .get_chunk(load_area_index, &(center_pos + ChunkPosition::new(1, 0, 0)))
             .map(ChunkSide::nx);
         let side_py = terrain
-            .get_chunk(load_area_index, &(center_pos + ChunkPos::new(0, 1, 0)))
+            .get_chunk(load_area_index, &(center_pos + ChunkPosition::new(0, 1, 0)))
             .map(ChunkSide::ny);
         let side_pz = terrain
-            .get_chunk(load_area_index, &(center_pos + ChunkPos::new(0, 0, 1)))
+            .get_chunk(load_area_index, &(center_pos + ChunkPosition::new(0, 0, 1)))
             .map(ChunkSide::nz);
         let side_nx = terrain
-            .get_chunk(load_area_index, &(center_pos + ChunkPos::new(-1, 0, 0)))
+            .get_chunk(
+                load_area_index,
+                &(center_pos + ChunkPosition::new(-1, 0, 0)),
+            )
             .map(ChunkSide::px);
         let side_ny = terrain
-            .get_chunk(load_area_index, &(center_pos + ChunkPos::new(0, -1, 0)))
+            .get_chunk(
+                load_area_index,
+                &(center_pos + ChunkPosition::new(0, -1, 0)),
+            )
             .map(ChunkSide::py);
         let side_nz = terrain
-            .get_chunk(load_area_index, &(center_pos + ChunkPos::new(0, 0, -1)))
+            .get_chunk(
+                load_area_index,
+                &(center_pos + ChunkPosition::new(0, 0, -1)),
+            )
             .map(ChunkSide::pz);
 
         vec![side_px, side_py, side_pz, side_nx, side_ny, side_nz]

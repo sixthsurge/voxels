@@ -1,6 +1,8 @@
 use std::hash::Hash;
 
 use bitvec::prelude::*;
+use either::Either;
+use itertools::repeat_n;
 use rustc_hash::FxHashMap;
 
 /// An heap-allocated array compressed with dictionary encoding
@@ -68,8 +70,14 @@ where
         if self.dictionary.entries.len() == 1 {
             self.dictionary.entries[0].clone()
         } else {
-            let dictionary_index = unsafe { self.buffer.get_unchecked(index) };
-            self.dictionary.entries[dictionary_index].clone()
+            unsafe {
+                let dictionary_index = self.buffer.get_unchecked(index);
+
+                self.dictionary
+                    .entries
+                    .get_unchecked(dictionary_index)
+                    .clone()
+            }
         }
     }
 
@@ -106,11 +114,22 @@ where
         self.buffer.len
     }
 
-    /// Returns an iterator over clones of all elements in the vec
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = T> + 'a {
-        self.buffer
-            .iter()
-            .map(|dictionary_index| self.dictionary.entries[dictionary_index].clone())
+    /// Returns an iterator over all elements in the array
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = T> + ExactSizeIterator + 'a {
+        if self.dictionary.entries.len() == 1 {
+            Either::Left(repeat_n(self.dictionary.entries[0].clone(), self.len()))
+        } else {
+            Either::Right(
+                self.buffer
+                    .iter()
+                    .map(|dictionary_index| unsafe {
+                        self.dictionary
+                            .entries
+                            .get_unchecked(dictionary_index)
+                            .clone()
+                    }),
+            )
+        }
     }
 
     /// True if the data buffer must be rebuilt as the dictionary has grown to the next power of
@@ -256,7 +275,7 @@ impl BitSizedIntegerBuffer {
         };
     }
 
-    fn iter<'a>(&'a self) -> impl Iterator<Item = usize> + 'a {
+    fn iter<'a>(&'a self) -> impl Iterator<Item = usize> + ExactSizeIterator + 'a {
         self.data
             .chunks_exact(self.element_size)
             .map(|chunk| chunk.load_be())
@@ -331,7 +350,7 @@ fn ceil_log2(x: u32) -> u32 {
 mod tests {
     use std::hint::black_box;
 
-    use crate::DictionaryEncodedArray;
+    use super::*;
 
     #[test]
     fn from_array() {

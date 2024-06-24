@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [profile.dev]
+opt-level = 1
 
 # enable full optimizations for dependencies in dev mode
 [profile.dev.package."*"]
@@ -15,6 +16,7 @@ bitvec = "1.0.1"
 bracket-noise = "0.8"
 bytemuck = { version = "1.15", features = [ "derive" ] }
 derive_more = "0.99"
+either = "1.12.0"
 env_logger = "0.11"
 generational-arena = "0.2.9"
 glam = "0.27"
@@ -26,3 +28,4 @@ rustc-hash = "1.1.0"
 thiserror = "1.0"
 wgpu = "0.20"
 winit = "0.30"
+

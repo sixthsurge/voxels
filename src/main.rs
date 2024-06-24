@@ -6,7 +6,7 @@ use generational_arena::Index;
 use input::Input;
 use render::{render_context::RenderContext, render_engine::RenderEngine};
 use tasks::Tasks;
-use terrain::{chunk::CHUNK_SIZE, load_area::LoadArea, position_types::ChunkPos, Terrain};
+use terrain::{chunk::CHUNK_SIZE, load_area::LoadArea, position_types::ChunkPosition, Terrain};
 use time::{TargetFrameRate, Time};
 use util::size::Size3;
 use winit::{
@@ -19,7 +19,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{block::BLOCK_WOOD, terrain::position_types::GlobalBlockPos};
+use crate::{block::BLOCK_WOOD, terrain::position_types::GlobalBlockPosition};
 
 mod block;
 mod fly_camera;
@@ -73,7 +73,7 @@ impl State {
         let load_area_index = terrain
             .load_areas_mut()
             .insert(LoadArea::new(
-                ChunkPos::ZERO,
+                ChunkPosition::ZERO,
                 Size3::new(40, 16, 40),
                 terrain::load_area::AreaShape::Cylindrical,
             ));
@@ -187,7 +187,7 @@ impl State {
                     if let Some(hit_normal) = hit.hit_normal {
                         self.terrain.set_block(
                             self.load_area_index,
-                            &(hit.hit_pos + GlobalBlockPos::from(hit_normal)),
+                            &(hit.hit_pos + GlobalBlockPosition::from(hit_normal)),
                             BLOCK_DIRT,
                         );
                     }
@@ -196,7 +196,7 @@ impl State {
                     if let Some(hit_normal) = hit.hit_normal {
                         self.terrain.set_block(
                             self.load_area_index,
-                            &(hit.hit_pos + GlobalBlockPos::from(hit_normal)),
+                            &(hit.hit_pos + GlobalBlockPosition::from(hit_normal)),
                             BLOCK_GRASS,
                         );
                     }
@@ -205,7 +205,7 @@ impl State {
                     if let Some(hit_normal) = hit.hit_normal {
                         self.terrain.set_block(
                             self.load_area_index,
-                            &(hit.hit_pos + GlobalBlockPos::from(hit_normal)),
+                            &(hit.hit_pos + GlobalBlockPosition::from(hit_normal)),
                             BLOCK_WOOD,
                         );
                     }
@@ -214,7 +214,7 @@ impl State {
                     if let Some(hit_normal) = hit.hit_normal {
                         self.terrain.set_block(
                             self.load_area_index,
-                            &(hit.hit_pos + GlobalBlockPos::from(hit_normal)),
+                            &(hit.hit_pos + GlobalBlockPosition::from(hit_normal)),
                             BLOCK_LAMP_ORANGE,
                         );
                     }

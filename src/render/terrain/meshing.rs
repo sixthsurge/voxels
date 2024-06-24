@@ -6,7 +6,7 @@ use crate::{
     block::{model::BlockFace, BlockId, BLOCKS},
     terrain::{
         chunk::{side::ChunkSide, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
-        position_types::LocalBlockPos,
+        position_types::LocalBlockPosition,
     },
 };
 
@@ -139,7 +139,7 @@ where
                 if let Some(face) = face {
                     if visible {
                         let light_data = interpolate_light_for_face::<Dir>(
-                            LocalBlockPos::from(pos_in_chunk),
+                            LocalBlockPosition::from(pos_in_chunk),
                             input.blocks,
                         );
 
@@ -226,7 +226,7 @@ where
                         cached_light_data
                     } else {
                         interpolate_light_for_face::<Dir>(
-                            LocalBlockPos::from(original_pos),
+                            LocalBlockPosition::from(original_pos),
                             input.blocks,
                         )
                         // no need to insert it into the cache because this face will never be
@@ -380,8 +380,10 @@ where
         if let Some(cached_light_data) = interpolated_light_cache[merge_candidate_index] {
             cached_light_data
         } else {
-            let interpolated =
-                interpolate_light_for_face::<Dir>(LocalBlockPos::from(merge_candidate_pos), blocks);
+            let interpolated = interpolate_light_for_face::<Dir>(
+                LocalBlockPosition::from(merge_candidate_pos),
+                blocks,
+            );
             interpolated_light_cache[merge_candidate_index] = Some(interpolated);
             interpolated
         };
@@ -396,11 +398,14 @@ struct FaceLightData([f32; 4]);
 /// future: Interpolate the light values for each vertex of the given face
 /// now: just interpolate whether each block is not air, for AO
 /// once there is floodfill lighting, this will interpolate that instead
-fn interpolate_light_for_face<Dir>(block_pos: LocalBlockPos, blocks: &[BlockId]) -> FaceLightData
+fn interpolate_light_for_face<Dir>(
+    block_pos: LocalBlockPosition,
+    blocks: &[BlockId],
+) -> FaceLightData
 where
     Dir: FaceDir,
 {
-    fn sample_block_at(block_pos: Option<LocalBlockPos>, blocks: &[BlockId]) -> f32 {
+    fn sample_block_at(block_pos: Option<LocalBlockPosition>, blocks: &[BlockId]) -> f32 {
         if let Some(block_pos) = block_pos {
             let is_air = blocks[block_pos.get_array_index()] == BlockId(0);
             if is_air {

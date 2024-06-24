@@ -1,12 +1,12 @@
 use std::collections::VecDeque;
 
-use glam::{UVec3};
+use glam::UVec3;
 
 use crate::{
     block::{BlockId, BLOCKS},
     terrain::{
         chunk::{CHUNK_SIZE_CUBED, CHUNK_SIZE_U32},
-        position_types::LocalBlockPos,
+        position_types::LocalBlockPosition,
     },
     util::face::{FaceIndex, FACE_NORMALS},
 };
@@ -33,7 +33,7 @@ impl VisibilityGraph {
                     let mut escaped = [false; 6];
 
                     // position to start the search at
-                    let start_pos = LocalBlockPos::from(
+                    let start_pos = LocalBlockPosition::from(
                         FACE_START[chunk_face]
                             + FACE_DIR_U[chunk_face] * u
                             + FACE_DIR_V[chunk_face] * v,
