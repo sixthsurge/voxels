@@ -1,18 +1,18 @@
 use glam::{IVec3, Vec3};
 
-use self::{storage::ChunkBlockStorage, visibility_graph::VisibilityGraph};
-use super::position_types::{ChunkPosition, LocalBlockPosition};
-use crate::{
+use self::{block_store::ChunkBlockStore, connections::ChunkConnections};
+use super::{
     block::{BlockId, BLOCK_AIR},
-    util::{
-        size::{Size2, Size3},
-        vector_map::VectorMapExt,
-    },
+    position_types::{ChunkPosition, LocalBlockPosition},
+};
+use crate::util::{
+    size::{Size2, Size3},
+    vector_map::VectorMapExt,
 };
 
+pub mod block_store;
+pub mod connections;
 pub mod side;
-pub mod storage;
-pub mod visibility_graph;
 
 pub const CHUNK_SIZE: usize = 32;
 pub const CHUNK_SIZE_2D: Size2 = Size2::splat(CHUNK_SIZE);
@@ -26,49 +26,50 @@ pub const CHUNK_SIZE_RECIP: f32 = 1.0 / (CHUNK_SIZE as f32);
 
 #[derive(Clone, Debug)]
 pub struct Chunk {
-    pos: ChunkPosition,
-    blocks: ChunkBlockStorage,
-    visibility_graph: VisibilityGraph,
+    block_store: ChunkBlockStore,
+    position: ChunkPosition,
+    connections: ChunkConnections,
 }
 
 impl Chunk {
-    pub fn new(pos: ChunkPosition, blocks: Vec<BlockId>) -> Self {
+    pub fn new(position: ChunkPosition, blocks: &[BlockId]) -> Self {
         // this function is called from a parallel thread so it's OK to perform intensive tasks
         // here
-        let visibility_graph = VisibilityGraph::compute(&blocks);
+        let block_store = ChunkBlockStore::new(blocks);
+        let connections = ChunkConnections::compute(blocks);
 
         Self {
-            pos,
-            blocks: ChunkBlockStorage::new(blocks),
-            visibility_graph,
+            block_store,
+            position,
+            connections,
         }
     }
 
     /// Returns the underlying block storage
-    pub fn get_block_storage(&self) -> &ChunkBlockStorage {
-        &self.blocks
+    pub fn get_block_store(&self) -> &ChunkBlockStore {
+        &self.block_store
     }
 
     /// Returns the block ID at the given position.
     /// Panics if the position is out of bounds
     pub fn get_block(&self, pos: LocalBlockPosition) -> BlockId {
-        self.blocks.get_block(pos)
+        self.block_store.get_block(pos)
     }
 
     /// Returns the block ID at the given position.
     /// Panics if the position is out of bounds
     pub fn set_block(&mut self, pos: LocalBlockPosition, new_id: BlockId) {
-        self.blocks.set_block(pos, new_id)
+        self.block_store.set_block(pos, new_id)
     }
 
     /// Returns this chunk's position
     pub fn position(&self) -> ChunkPosition {
-        self.pos
+        self.position
     }
 
-    /// Returns the computed visibility graph for this chunk
-    pub fn visibility_graph(&self) -> VisibilityGraph {
-        self.visibility_graph
+    /// Returns the computed connections for this chunk
+    pub fn connections(&self) -> ChunkConnections {
+        self.connections
     }
 
     /// Marches through the chunk along the ray with the given origin and direction, using the DDA

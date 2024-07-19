@@ -50,11 +50,7 @@ impl Tasks {
     where
         TaskFn: FnOnce() + Send + Sync + 'static,
     {
-        let mut lock = self
-            .shared
-            .mutex
-            .lock()
-            .expect("`Tasks` mutex poisoned");
+        let mut lock = self.shared.mutex.lock().expect("`Tasks` mutex poisoned");
 
         let task_id = TaskId(self.total_tasks_submitted);
         self.total_tasks_submitted += 1;
@@ -68,9 +64,7 @@ impl Tasks {
         ));
 
         // notify a sleeping worker thread that there is a new task
-        self.shared
-            .pending_task_cond
-            .notify_one();
+        self.shared.pending_task_cond.notify_one();
 
         task_id
     }
@@ -79,11 +73,7 @@ impl Tasks {
     /// Returns the TaskId of the new task in the thread pool
     pub fn block_until_finished(&self) {
         loop {
-            let lock = self
-                .shared
-                .mutex
-                .lock()
-                .expect("`Tasks` mutex poisoned");
+            let lock = self.shared.mutex.lock().expect("`Tasks` mutex poisoned");
 
             if lock.pending_tasks.is_empty() && lock.active_worker_threads == 0 {
                 break;
@@ -104,11 +94,7 @@ impl Tasks {
     /// Attempt to cancel a submitted task if it is still pending execution
     /// Returns true if the task was successfully cancelled
     pub fn cancel_if_pending(&mut self, task_id: TaskId) -> bool {
-        let mut lock = self
-            .shared
-            .mutex
-            .lock()
-            .expect("`Tasks` mutex poisoned");
+        let mut lock = self.shared.mutex.lock().expect("`Tasks` mutex poisoned");
 
         lock.pending_tasks
             .iter()
@@ -126,11 +112,7 @@ impl Tasks {
 
     /// Returns the current number of active workers in the pool
     pub fn active_worker_count(&mut self) -> usize {
-        let lock = self
-            .shared
-            .mutex
-            .lock()
-            .expect("`Tasks` mutex poisoned");
+        let lock = self.shared.mutex.lock().expect("`Tasks` mutex poisoned");
 
         lock.active_worker_threads
     }
@@ -138,10 +120,7 @@ impl Tasks {
     /// Function run on the worker threads
     fn worker(shared: Arc<TasksShared>) {
         loop {
-            let mut lock = shared
-                .mutex
-                .lock()
-                .expect("`Tasks` mutex poisoned");
+            let mut lock = shared.mutex.lock().expect("`Tasks` mutex poisoned");
 
             // wait for a pending task
             lock = shared
@@ -165,10 +144,7 @@ impl Tasks {
                 .min_by(|(_, task_a), (_, task_b)| task_a.priority.cmp(&task_b.priority))
                 .expect("tasks should not be empty")
                 .0;
-            let next_task = lock
-                .pending_tasks
-                .remove(next_task_index)
-                .1;
+            let next_task = lock.pending_tasks.remove(next_task_index).1;
 
             lock.active_worker_threads += 1;
 
@@ -179,10 +155,7 @@ impl Tasks {
             (next_task.task_fn)();
 
             // re-acquire the lock in order to decrement `active_worker_threads`
-            let mut lock = shared
-                .mutex
-                .lock()
-                .expect("`Tasks` mutex poisoned");
+            let mut lock = shared.mutex.lock().expect("`Tasks` mutex poisoned");
             lock.active_worker_threads -= 1;
             drop(lock);
 
@@ -196,11 +169,7 @@ impl Drop for Tasks {
     fn drop(&mut self) {
         // set the `terminate` flag to true, so that worker threads will terminate after their
         // current task
-        let mut lock = self
-            .shared
-            .mutex
-            .lock()
-            .expect("`Tasks` mutex poisoned");
+        let mut lock = self.shared.mutex.lock().expect("`Tasks` mutex poisoned");
         lock.terminate = true;
     }
 }

@@ -1,4 +1,4 @@
-use crate::render::util::mesh::Vertex;
+use crate::core::wgpu_util::vertex::Vertex;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

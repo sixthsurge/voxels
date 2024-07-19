@@ -1,13 +1,21 @@
+use core::{
+    input::Input,
+    tasks::Tasks,
+    time::{TargetFrameRate, Time},
+    wgpu_util::wgpu_context::WgpuContext,
+};
 use std::sync::Arc;
 
-use block::{BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LAMP_ORANGE};
 use fly_camera::FlyCamera;
 use generational_arena::Index;
-use input::Input;
-use render::{render_context::RenderContext, render_engine::RenderEngine};
-use tasks::Tasks;
-use terrain::{chunk::CHUNK_SIZE, load_area::LoadArea, position_types::ChunkPosition, Terrain};
-use time::{TargetFrameRate, Time};
+use renderer::Renderer;
+use terrain::{
+    block::{BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LAMP_ORANGE},
+    chunk::CHUNK_SIZE,
+    load_area::{AreaShape, LoadArea},
+    position_types::ChunkPosition,
+    Terrain,
+};
 use util::size::Size3;
 use winit::{
     application::ApplicationHandler,
@@ -19,15 +27,12 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{block::BLOCK_WOOD, terrain::position_types::GlobalBlockPosition};
+use crate::terrain::{block::BLOCK_WOOD, position_types::GlobalBlockPosition};
 
-mod block;
+mod core;
 mod fly_camera;
-mod input;
-mod render;
-mod tasks;
+mod renderer;
 mod terrain;
-mod time;
 mod util;
 
 const WINDOW_TITLE: &'static str = "\"minecraft\"";
@@ -49,13 +54,13 @@ const CHUNK_MESH_OPTIMIZATION_PRIORITY: i32 = 3;
 
 struct State {
     window: Arc<Window>,
-    render_context: RenderContext,
+    wgpu: WgpuContext,
     time: Time,
     input: Input,
     tasks: Tasks,
     terrain: Terrain,
     load_area_index: Index,
-    render_engine: RenderEngine,
+    renderer: Renderer,
     fly_camera: FlyCamera,
     fly_camera_active: bool,
     close_requested: bool,
@@ -63,37 +68,29 @@ struct State {
 
 impl State {
     fn new(window: Arc<Window>) -> Self {
-        let render_context = RenderContext::new(window.clone());
+        let wgpu = WgpuContext::new(window.clone());
         let input = Input::new();
         let time = Time::new(TargetFrameRate::UnlimitedOrVsync);
         let tasks = Tasks::new(TASKS_WORKER_THREAD_COUNT);
         let mut terrain = Terrain::new();
         let fly_camera = FlyCamera::default();
 
-        let load_area_index = terrain
-            .load_areas_mut()
-            .insert(LoadArea::new(
-                ChunkPosition::ZERO,
-                Size3::new(40, 16, 40),
-                terrain::load_area::AreaShape::Cylindrical,
-            ));
-        let render_engine = RenderEngine::new(
-            &render_context,
-            terrain
-                .load_areas()
-                .get(load_area_index)
-                .unwrap(),
-        );
+        let load_area_index = terrain.load_areas_mut().insert(LoadArea::new(
+            ChunkPosition::ZERO,
+            Size3::new(64, 16, 64),
+            AreaShape::Cylindrical,
+        ));
+        let renderer = Renderer::new(&wgpu, terrain.load_areas().get(load_area_index).unwrap());
 
         Self {
             window,
-            render_context,
+            wgpu,
             input,
             time,
             tasks,
             terrain,
             load_area_index,
-            render_engine,
+            renderer,
             fly_camera,
             fly_camera_active: true,
             close_requested: false,
@@ -109,9 +106,8 @@ impl State {
     }
 
     fn resized(&mut self, new_size: PhysicalSize<u32>) {
-        self.render_context.resized(new_size);
-        self.render_engine
-            .resized(&self.render_context);
+        self.wgpu.resized(new_size);
+        self.renderer.resized(&self.wgpu);
     }
 
     fn update(&mut self) {
@@ -128,10 +124,7 @@ impl State {
                 .unwrap();
         }
 
-        if self
-            .input
-            .is_key_just_pressed(KeyCode::KeyC)
-        {
+        if self.input.is_key_just_pressed(KeyCode::KeyC) {
             self.fly_camera.position.x *= 2.0;
             log::info!("{}", self.fly_camera.position.x);
         }
@@ -145,31 +138,18 @@ impl State {
 
         // update flycam
         if self.fly_camera_active {
-            self.fly_camera
-                .update(&self.input, &self.time);
+            self.fly_camera.update(&self.input, &self.time);
         }
-        self.render_engine
-            .camera_mut()
-            .transform = self.fly_camera.get_transform();
+        self.renderer.camera_mut().transform = self.fly_camera.get_transform();
 
         // block breaking and placing (TEMP)
-        let destroy = self
-            .input
-            .is_mouse_button_just_pressed(MouseButton::Left);
-        let place_dirt = self
-            .input
-            .is_key_just_pressed(KeyCode::Digit1);
-        let place_grass = self
-            .input
-            .is_key_just_pressed(KeyCode::Digit2);
-        let place_wood = self
-            .input
-            .is_key_just_pressed(KeyCode::Digit3);
-        let place_lamp = self
-            .input
-            .is_key_just_pressed(KeyCode::Digit4);
+        let destroy = self.input.is_mouse_button_just_pressed(MouseButton::Left);
+        let place_dirt = self.input.is_key_just_pressed(KeyCode::Digit1);
+        let place_grass = self.input.is_key_just_pressed(KeyCode::Digit2);
+        let place_wood = self.input.is_key_just_pressed(KeyCode::Digit3);
+        let place_lamp = self.input.is_key_just_pressed(KeyCode::Digit4);
         if destroy || place_dirt || place_grass || place_wood || place_lamp {
-            let look_dir = self.render_engine.camera().look_dir(); // bad coupling
+            let look_dir = self.renderer.camera().look_dir(); // bad coupling
 
             let hit = self.terrain.raymarch(
                 self.load_area_index,
@@ -232,10 +212,7 @@ impl State {
     }
 
     fn render(&mut self) {
-        let Some(surface_texture) = self
-            .render_context
-            .get_surface_texture()
-        else {
+        let Some(surface_texture) = self.wgpu.get_surface_texture() else {
             log::warn!("couldn't acquire surface texture");
             return;
         };
@@ -244,8 +221,8 @@ impl State {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.render_engine.render(
-            &self.render_context,
+        self.renderer.render(
+            &self.wgpu,
             &output_view,
             &self.time,
             &mut self.tasks,

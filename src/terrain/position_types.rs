@@ -24,9 +24,7 @@ impl GlobalBlockPosition {
     /// Given a global block position, return the position of the block within its chunk and the
     /// position of the chunk containing it
     pub fn get_local_and_chunk_pos(&self) -> (LocalBlockPosition, ChunkPosition) {
-        let local_pos = (self.0 & (CHUNK_SIZE_I32 - 1))
-            .as_uvec3()
-            .into();
+        let local_pos = (self.0 & (CHUNK_SIZE_I32 - 1)).as_uvec3().into();
 
         let chunk_pos = (self.0 >> (CHUNK_SIZE_LOG2 as i32)).into();
 
@@ -66,9 +64,7 @@ impl LocalBlockPosition {
     }
 
     pub fn from_global_pos(global_pos: GlobalBlockPosition) -> Self {
-        (global_pos.0 & (CHUNK_SIZE_I32 - 1))
-            .as_uvec3()
-            .into()
+        (global_pos.0 & (CHUNK_SIZE_I32 - 1)).as_uvec3().into()
     }
 
     pub fn get_array_index(&self) -> usize {
@@ -89,9 +85,7 @@ impl LocalBlockPosition {
     pub fn try_add(&self, other: IVec3) -> Option<LocalBlockPosition> {
         let sum = self.0.as_ivec3() + other;
         let not_underflow = sum.cmpge(IVec3::ZERO).all();
-        let not_overflow = sum
-            .cmplt(IVec3::splat(CHUNK_SIZE_I32))
-            .all();
+        let not_overflow = sum.cmplt(IVec3::splat(CHUNK_SIZE_I32)).all();
         if not_underflow && not_overflow {
             Some(Self(sum.as_uvec3()))
         } else {

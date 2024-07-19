@@ -4,22 +4,20 @@ use generational_arena::Index;
 use glam::Vec3;
 use itertools::Itertools;
 
-use self::{
-    chunk_batching::ChunkBatches, vertex::TerrainVertex, visibility_search::visibility_search,
-};
-use super::{
-    frustum_culling::FrustumCullingRegions,
-    render_context::RenderContext,
-    render_engine::RenderEngine,
-    util::{
-        bind_group_builder::BindGroupBuilder,
-        mip_generator::MipGenerator,
-        pipeline_builder::RenderPipelineBuilder,
-        texture::{ArrayTexture, TextureConfig, TextureHolder},
-    },
-};
+use self::{batching::ChunkBatches, vertex::TerrainVertex, visibility_search::visibility_search};
+use super::{frustum_culling::FrustumCullingRegions, Renderer};
 use crate::{
-    tasks::{TaskId, Tasks},
+    core::{
+        tasks::{TaskId, Tasks},
+        time::Time,
+        wgpu_util::{
+            bind_group_builder::BindGroupBuilder,
+            mip_generator::MipGenerator,
+            pipeline_builder::RenderPipelineBuilder,
+            texture::{ArrayTexture, TextureConfig, TextureHolder},
+            wgpu_context::WgpuContext,
+        },
+    },
     terrain::{
         chunk::Chunk,
         event::TerrainEvent,
@@ -27,11 +25,10 @@ use crate::{
         position_types::{ChunkPosition, LocalBlockPosition},
         Terrain,
     },
-    time::Time,
     CHUNK_MESH_GENERATION_PRIORITY, CHUNK_MESH_OPTIMIZATION_PRIORITY, CHUNK_MESH_UPDATE_PRIORITY,
 };
 
-mod chunk_batching;
+mod batching;
 mod meshing;
 mod vertex;
 mod visibility_search;
@@ -39,16 +36,12 @@ mod visibility_search;
 /// Responsible for rendering the voxel terrain
 #[derive(Debug)]
 pub struct TerrainRenderer {
-    /// Responsible for managing chunk batches
     chunk_batches: ChunkBatches,
     /// Frame index when each chunk batch was last rendered, to prevent them from being rendered
     /// multiple times per frame
     frame_last_drawn: Vec<usize>,
-    /// Cull mode to use
-    cull_mode: TerrainCullMode,
-    /// Render pipeline for drawing chunk batches
+    culling_mode: ChunkCullingMode,
     terrain_pipeline: wgpu::RenderPipeline,
-    /// Bind group for the texture array
     texture_bind_group: wgpu::BindGroup,
 }
 
@@ -56,15 +49,15 @@ impl TerrainRenderer {
     pub const MIP_LEVEL_COUNT: u32 = 4;
 
     pub fn new(
-        cx: &RenderContext,
+        wgpu: &WgpuContext,
         common_uniforms_bind_group_layout: &wgpu::BindGroupLayout,
         load_area: &LoadArea,
-        cull_mode: TerrainCullMode,
+        cull_mode: ChunkCullingMode,
     ) -> Self {
         // TODO load texture and shader using proper asset system rather than doing it here
         let texture_array = ArrayTexture::from_files(
-            &cx.device,
-            &cx.queue,
+            &wgpu.device,
+            &wgpu.queue,
             &[
                 "assets/image/block/dirt.png",
                 "assets/image/block/grass_side.png",
@@ -80,7 +73,7 @@ impl TerrainRenderer {
         )
         .expect("failed to load terrain textures")
         .with_view_and_sampler(
-            &cx.device,
+            &wgpu.device,
             wgpu::SamplerDescriptor {
                 address_mode_u: wgpu::AddressMode::Repeat,
                 address_mode_v: wgpu::AddressMode::Repeat,
@@ -89,20 +82,19 @@ impl TerrainRenderer {
         );
 
         // generate mipmaps
-        let mut mip_encoder = cx
+        let mut mip_encoder = wgpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-        let mip_generator = MipGenerator::new(&cx.device, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let mip_generator = MipGenerator::new(&wgpu.device, wgpu::TextureFormat::Rgba8UnormSrgb);
         mip_generator.generate_mips(
             &mut mip_encoder,
-            &cx.device,
+            &wgpu.device,
             texture_array.texture(),
             texture_array.size().z,
             Self::MIP_LEVEL_COUNT,
         );
-        cx.queue
-            .submit(std::iter::once(mip_encoder.finish()));
+        wgpu.queue.submit(std::iter::once(mip_encoder.finish()));
 
         let (texture_bind_group, texture_bind_group_layout) = BindGroupBuilder::new()
             .with_label("Texture Array Bind Group")
@@ -117,10 +109,10 @@ impl TerrainRenderer {
                 wgpu::SamplerBindingType::Filtering,
                 wgpu::ShaderStages::FRAGMENT,
             )
-            .build(&cx.device);
+            .build(&wgpu.device);
 
         let batch_bind_group_layout =
-            cx.device
+            wgpu.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: None,
                     entries: &[wgpu::BindGroupLayoutEntry {
@@ -135,9 +127,9 @@ impl TerrainRenderer {
                     }],
                 });
 
-        let terrain_shader = cx
+        let terrain_shader = wgpu
             .device
-            .create_shader_module(wgpu::include_wgsl!("../../assets/shader/terrain.wgsl"));
+            .create_shader_module(wgpu::include_wgsl!("../../../assets/shader/terrain.wgsl")); // tmp
 
         let (terrain_pipeline, _) = RenderPipelineBuilder::new()
             .with_label("Terrain Pipeline")
@@ -148,22 +140,22 @@ impl TerrainRenderer {
             .with_vertex_shader(&terrain_shader, "vs_main")
             .with_fragment_shader(&terrain_shader, "fs_main")
             .with_color_target(
-                cx.surface_config.format,
+                wgpu.surface_config.format,
                 Some(wgpu::BlendState::REPLACE),
                 wgpu::ColorWrites::all(),
             )
-            .with_depth(RenderEngine::DEPTH_FORMAT, RenderEngine::DEPTH_COMPARE)
+            .with_depth(Renderer::DEPTH_FORMAT, Renderer::DEPTH_COMPARE)
             //.with_polygon_mode(wgpu::PolygonMode::Line)
-            .build(&cx.device);
+            .build(&wgpu.device);
 
-        let chunk_batches = ChunkBatches::new(cx, load_area, batch_bind_group_layout);
+        let chunk_batches = ChunkBatches::new(wgpu, load_area, batch_bind_group_layout);
 
         let frame_last_drawn = vec![0; chunk_batches.size().product()];
 
         Self {
             chunk_batches,
             frame_last_drawn,
-            cull_mode,
+            culling_mode: cull_mode,
             terrain_pipeline,
             texture_bind_group,
         }
@@ -176,7 +168,7 @@ impl TerrainRenderer {
         output_view: &wgpu::TextureView,
         depth_view: &wgpu::TextureView,
         common_uniforms_bind_group: &wgpu::BindGroup,
-        cx: &RenderContext,
+        wgpu: &WgpuContext,
         time: &Time,
         tasks: &mut Tasks,
         terrain: &Terrain,
@@ -196,23 +188,22 @@ impl TerrainRenderer {
         }
 
         // update chunk batches
-        self.chunk_batches
-            .update(cx, terrain, load_area_index);
+        self.chunk_batches.update(wgpu, terrain, load_area_index);
 
         // get the list of chunks to be rendered in order
-        let render_queue = match self.cull_mode {
-            TerrainCullMode::CullNone => terrain
+        let render_queue = match self.culling_mode {
+            ChunkCullingMode::CullNone => terrain
                 .chunks()
                 .iter()
                 .map(|(_, chunk)| chunk)
                 .collect_vec(),
-            TerrainCullMode::Frustum => terrain
+            ChunkCullingMode::Frustum => terrain
                 .chunks()
                 .iter()
                 .map(|(_, chunk)| chunk)
                 .filter(|chunk| frustum_culling_regions.is_chunk_within_frustum(&chunk.position()))
                 .collect_vec(),
-            TerrainCullMode::VisibilitySearch => visibility_search(
+            ChunkCullingMode::VisibilitySearch => visibility_search(
                 terrain,
                 load_area_index,
                 frustum_culling_regions,
@@ -223,7 +214,7 @@ impl TerrainRenderer {
         // request mesh updates for visible chunks
         for chunk in &render_queue {
             self.request_mesh_updates_for_chunk(
-                cx,
+                wgpu,
                 chunk,
                 tasks,
                 terrain,
@@ -264,18 +255,14 @@ impl TerrainRenderer {
         render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
         render_pass.set_bind_group(1, &common_uniforms_bind_group, &[]);
         render_pass.set_index_buffer(
-            self.chunk_batches
-                .shared_index_buffer()
-                .slice(..),
+            self.chunk_batches.shared_index_buffer().slice(..),
             wgpu::IndexFormat::Uint32,
         );
 
         for chunk in &render_queue {
             let (batch_pos, _) =
                 ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(&chunk.position());
-            let batch_index = self
-                .chunk_batches
-                .get_batch_index(&batch_pos);
+            let batch_index = self.chunk_batches.get_batch_index(&batch_pos);
 
             if self.frame_last_drawn[batch_index] == time.frame_index() {
                 // don't draw the same chunk batch twice
@@ -302,7 +289,7 @@ impl TerrainRenderer {
     /// Request any necessary mesh updates for the given chunk
     pub fn request_mesh_updates_for_chunk(
         &mut self,
-        cx: &RenderContext,
+        wgpu: &WgpuContext,
         chunk: &Chunk,
         tasks: &mut Tasks,
         terrain: &Terrain,
@@ -314,7 +301,7 @@ impl TerrainRenderer {
 
         let batch = self
             .chunk_batches
-            .get_or_repurpose_batch(cx, tasks, &batch_pos);
+            .get_or_repurpose_batch(wgpu, tasks, &batch_pos);
 
         let remeshing_priority = match batch.get_chunk_mesh_status(&chunk_pos_in_batch) {
             ChunkMeshStatus::Good | ChunkMeshStatus::Generating(_) => None,
@@ -324,15 +311,14 @@ impl TerrainRenderer {
         };
 
         if let Some(remeshing_priority) = remeshing_priority {
-            self.chunk_batches
-                .queue_chunk_for_meshing(
-                    chunk,
-                    tasks,
-                    terrain,
-                    load_area_index,
-                    camera_pos,
-                    remeshing_priority,
-                )
+            self.chunk_batches.queue_chunk_for_meshing(
+                chunk,
+                tasks,
+                terrain,
+                load_area_index,
+                camera_pos,
+                remeshing_priority,
+            )
         }
     }
 
@@ -352,10 +338,7 @@ impl TerrainRenderer {
             let (batch_pos, chunk_pos_in_batch) =
                 ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(&neighbour_pos);
 
-            if let Some(batch) = self
-                .chunk_batches
-                .get_batch_mut(&batch_pos)
-            {
+            if let Some(batch) = self.chunk_batches.get_batch_mut(&batch_pos) {
                 batch.mark_suboptimal(&chunk_pos_in_batch);
             }
         }
@@ -367,10 +350,7 @@ impl TerrainRenderer {
         let (batch_pos, chunk_pos_in_batch) =
             ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(&chunk_pos);
 
-        if let Some(batch) = self
-            .chunk_batches
-            .get_batch_mut(&batch_pos)
-        {
+        if let Some(batch) = self.chunk_batches.get_batch_mut(&batch_pos) {
             batch.clear_mesh_data_for_chunk(&chunk_pos_in_batch);
         }
     }
@@ -380,10 +360,7 @@ impl TerrainRenderer {
         let (batch_pos, chunk_pos_in_batch) =
             ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(chunk_pos);
 
-        if let Some(batch) = self
-            .chunk_batches
-            .get_batch_mut(&batch_pos)
-        {
+        if let Some(batch) = self.chunk_batches.get_batch_mut(&batch_pos) {
             batch.mark_outdated(&chunk_pos_in_batch);
         }
     }
@@ -405,7 +382,7 @@ struct ChunkMeshData {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum TerrainCullMode {
+pub enum ChunkCullingMode {
     CullNone,
     Frustum,
     VisibilitySearch,

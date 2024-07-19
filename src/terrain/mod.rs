@@ -5,25 +5,25 @@ use glam::{IVec3, Vec3};
 use itertools::Itertools;
 
 use self::{
+    block::BlockId,
     chunk::{Chunk, CHUNK_SIZE, CHUNK_SIZE_RECIP},
     event::TerrainEvent,
     load_area::{LoadArea, LoadAreaState},
     position_types::{ChunkPosition, GlobalBlockPosition},
 };
 use crate::{
-    block::BlockId,
-    tasks::{TaskPriority, Tasks},
+    core::tasks::{TaskPriority, Tasks},
     util::vector_map::VectorMapExt,
     CHUNK_LOADING_PRIORITY,
 };
 
+pub mod block;
 pub mod chunk;
 pub mod event;
 pub mod lighting;
 pub mod load_area;
 pub mod position_types;
-
-mod temporary_generation;
+pub mod temporary_generation;
 
 /// Manages the voxel terrain, responsible for loading/unloading chunks and submitting terrain
 /// generation tasks
@@ -54,7 +54,7 @@ impl Terrain {
         }
     }
 
-    /// Called each frame to update the terrain
+    /// Called each frame to update the chunks
     pub fn update(&mut self, tasks: &mut Tasks, camera_pos: Vec3) {
         // check for newly loaded chunks
         while let Ok(chunk) = self.loaded_chunk_rx.try_recv() {
@@ -154,11 +154,7 @@ impl Terrain {
         while t < maximum_distance {
             let ray_pos = ray_origin + ray_direction * t;
 
-            let chunk_pos = ChunkPosition::from(
-                (ray_pos * CHUNK_SIZE_RECIP)
-                    .floor()
-                    .as_ivec3(),
-            );
+            let chunk_pos = ChunkPosition::from((ray_pos * CHUNK_SIZE_RECIP).floor().as_ivec3());
             if let Some(chunk) = self.get_chunk(load_area_index, &chunk_pos) {
                 let ray_origin = ray_pos - chunk_pos.as_vec3() * (CHUNK_SIZE as f32);
 
@@ -228,12 +224,11 @@ impl Terrain {
             .iter()
             .filter(|(_, area)| area.state().is_dirty())
             .map(|(_, area)| {
-                area.iter_positions()
-                    .filter(|chunk_pos| {
-                        self.load_areas
-                            .iter()
-                            .all(|(_, area)| area.is_unloaded(&chunk_pos))
-                    })
+                area.iter_positions().filter(|chunk_pos| {
+                    self.load_areas
+                        .iter()
+                        .all(|(_, area)| area.is_unloaded(&chunk_pos))
+                })
             })
             .flatten()
             .collect_vec();
@@ -330,8 +325,7 @@ impl Terrain {
             .filter(|(_, load_area)| load_area.is_within_bounds(&chunk_pos))
             .for_each(|(_, load_area)| load_area.mark_loaded(&chunk_pos, chunk_index));
 
-        self.events
-            .push(TerrainEvent::ChunkLoaded(chunk_pos));
+        self.events.push(TerrainEvent::ChunkLoaded(chunk_pos));
     }
 
     /// Unload the chunk with the given position
@@ -345,12 +339,9 @@ impl Terrain {
             .filter(|(_, load_area)| load_area.is_within_bounds(&chunk_pos))
             .for_each(|(_, load_area)| load_area.mark_unloaded(&chunk_pos));
 
-        self.events
-            .push(TerrainEvent::ChunkUnloaded(
-                self.chunks[chunk_index]
-                    .position()
-                    .clone(),
-            ));
+        self.events.push(TerrainEvent::ChunkUnloaded(
+            self.chunks[chunk_index].position().clone(),
+        ));
         self.chunks.remove(chunk_index);
     }
 }

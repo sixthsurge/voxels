@@ -2,12 +2,10 @@ use glam::{UVec2, UVec3, Vec2, Vec3};
 
 use self::face_dir::*;
 use super::vertex::TerrainVertex;
-use crate::{
+use crate::terrain::{
     block::{model::BlockFace, BlockId, BLOCKS},
-    terrain::{
-        chunk::{side::ChunkSide, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
-        position_types::LocalBlockPosition,
-    },
+    chunk::{side::ChunkSide, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
+    position_types::LocalBlockPosition,
 };
 
 /// Data about a chunk needed to generate its mesh
@@ -153,9 +151,7 @@ where
                     }
                 }
 
-                visible = block_model
-                    .face(Dir::OPPOSITE_FACE_INDEX)
-                    .is_none();
+                visible = block_model.face(Dir::OPPOSITE_FACE_INDEX).is_none();
             }
         }
     }
@@ -234,9 +230,7 @@ where
                     };
 
                 // update `visible` for the next layer
-                visible[original_index] = original_model
-                    .face(Dir::OPPOSITE_FACE_INDEX)
-                    .is_none();
+                visible[original_index] = original_model.face(Dir::OPPOSITE_FACE_INDEX).is_none();
 
                 // skip if there is no face or the face is invisible
                 if original_face.is_none() || !original_visible {

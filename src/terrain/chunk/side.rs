@@ -2,15 +2,15 @@ use std::sync::Arc;
 
 use generational_arena::Index;
 
-use super::{Chunk, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32};
-use crate::{
-    block::BLOCKS,
-    terrain::{
+use super::{
+    super::{
+        block::BLOCKS,
         position_types::{ChunkPosition, LocalBlockPosition},
         Terrain,
     },
-    util::face::FaceIndex,
+    Chunk, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32,
 };
+use crate::util::face::FaceIndex;
 
 /// Represents a side of a chunk, storing whether each tile is solid (false) or empty (true).
 /// The tiles are indexed as follows:
@@ -32,10 +32,7 @@ impl ChunkSide {
                 let pos_in_chunk = LocalBlockPosition::new(CHUNK_SIZE_U32 - 1, v, u);
                 let block_id = chunk.get_block(pos_in_chunk);
                 let block = &BLOCKS[block_id.0 as usize];
-                faces[index] = block
-                    .model
-                    .face(FaceIndex::POS_X)
-                    .is_none();
+                faces[index] = block.model.face(FaceIndex::POS_X).is_none();
                 index += 1;
             }
         }
@@ -54,10 +51,7 @@ impl ChunkSide {
                 let pos_in_chunk = LocalBlockPosition::new(v, CHUNK_SIZE_U32 - 1, u);
                 let block_id = chunk.get_block(pos_in_chunk);
                 let block = &BLOCKS[block_id.0 as usize];
-                faces[index] = block
-                    .model
-                    .face(FaceIndex::POS_Y)
-                    .is_none();
+                faces[index] = block.model.face(FaceIndex::POS_Y).is_none();
                 index += 1;
             }
         }
@@ -76,10 +70,7 @@ impl ChunkSide {
                 let pos_in_chunk = LocalBlockPosition::new(u, v, CHUNK_SIZE_U32 - 1);
                 let block_id = chunk.get_block(pos_in_chunk);
                 let block = &BLOCKS[block_id.0 as usize];
-                faces[index] = block
-                    .model
-                    .face(FaceIndex::POS_Z)
-                    .is_none();
+                faces[index] = block.model.face(FaceIndex::POS_Z).is_none();
                 index += 1;
             }
         }
@@ -98,10 +89,7 @@ impl ChunkSide {
                 let pos_in_chunk = LocalBlockPosition::new(0, v, u);
                 let block_id = chunk.get_block(pos_in_chunk);
                 let block = &BLOCKS[block_id.0 as usize];
-                faces[index] = block
-                    .model
-                    .face(FaceIndex::NEG_X)
-                    .is_none();
+                faces[index] = block.model.face(FaceIndex::NEG_X).is_none();
                 index += 1;
             }
         }
@@ -120,10 +108,7 @@ impl ChunkSide {
                 let pos_in_chunk = LocalBlockPosition::new(v, 0, u);
                 let block_id = chunk.get_block(pos_in_chunk);
                 let block = &BLOCKS[block_id.0 as usize];
-                faces[index] = block
-                    .model
-                    .face(FaceIndex::NEG_Y)
-                    .is_none();
+                faces[index] = block.model.face(FaceIndex::NEG_Y).is_none();
                 index += 1;
             }
         }
@@ -142,10 +127,7 @@ impl ChunkSide {
                 let pos_in_chunk = LocalBlockPosition::new(u, v, 0);
                 let block_id = chunk.get_block(pos_in_chunk);
                 let block = &BLOCKS[block_id.0 as usize];
-                faces[index] = block
-                    .model
-                    .face(FaceIndex::NEG_Z)
-                    .is_none();
+                faces[index] = block.model.face(FaceIndex::NEG_Z).is_none();
                 index += 1;
             }
         }

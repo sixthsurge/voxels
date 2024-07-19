@@ -77,8 +77,6 @@ impl Camera {
 
     /// Returns the direction the camera is looking in
     pub fn look_dir(&self) -> Vec3 {
-        self.transform
-            .rotation
-            .mul_vec3(Vec3::NEG_Z)
+        self.transform.rotation.mul_vec3(Vec3::NEG_Z)
     }
 }

@@ -2,28 +2,23 @@ use std::{mem::MaybeUninit, usize};
 
 use either::Either;
 use itertools::{repeat_n, Itertools};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
-use crate::{
-    block::BlockId,
-    terrain::{
-        chunk::{CHUNK_SIZE_CUBED, CHUNK_SIZE_U32},
-        position_types::LocalBlockPosition,
-    },
+use super::{
+    super::{block::BlockId, chunk::CHUNK_SIZE_CUBED, position_types::LocalBlockPosition},
+    CHUNK_SIZE, CHUNK_SIZE_SQUARED,
 };
-
-use super::{CHUNK_SIZE, CHUNK_SIZE_SQUARED};
 
 /// Storage for a chunk's block data in memory
 #[derive(Clone, Debug)]
-pub enum ChunkBlockStorage {
+pub enum ChunkBlockStore {
     Uniform(BlockId),
     Layered([BlockLayer; CHUNK_SIZE]),
 }
 
-impl ChunkBlockStorage {
+impl ChunkBlockStore {
     /// Initialize the block storage from an array of block IDs, ordered by y, then z, then x
-    pub fn new(blocks: Vec<BlockId>) -> Self {
+    pub fn new(blocks: &[BlockId]) -> Self {
         debug_assert!(blocks.len() == CHUNK_SIZE_CUBED);
 
         if let Ok(&block_id) = blocks.iter().all_equal_value() {
@@ -76,12 +71,12 @@ impl ChunkBlockStorage {
         };
 
         match self {
-            ChunkBlockStorage::Uniform(block_id) => {
+            ChunkBlockStore::Uniform(block_id) => {
                 let mut layers = array_init::array_init(|_| BlockLayer::new(&[*block_id]));
                 set_block_in_layers(&mut layers);
                 *self = Self::Layered(layers);
             }
-            ChunkBlockStorage::Layered(layers) => set_block_in_layers(layers),
+            ChunkBlockStore::Layered(layers) => set_block_in_layers(layers),
         };
     }
 }
@@ -96,7 +91,7 @@ impl ChunkBlockStorage {
 /// split over multiple `usize`s. This makes accessing the data much faster at the
 /// expense of compression.
 #[derive(Clone, Debug)]
-struct BlockLayer {
+pub struct BlockLayer {
     segments: Box<[usize]>,
     element_size_bits: usize,
     palette: BlockPalette,
@@ -105,7 +100,7 @@ struct BlockLayer {
 impl BlockLayer {
     /// - `blocks` may have length 1, indicating that the layer is comprised
     ///   of a single block type, or CHUNK_SIZE_SQUARED
-    fn new(blocks: &[BlockId]) -> Self {
+    pub fn new(blocks: &[BlockId]) -> Self {
         debug_assert!(blocks.len() == 1 || blocks.len() == CHUNK_SIZE_SQUARED);
 
         let palette = BlockPalette::new(blocks);
@@ -118,7 +113,7 @@ impl BlockLayer {
         }
     }
 
-    fn get(&self, x: u32, y: u32) -> BlockId {
+    pub fn get(&self, x: u32, y: u32) -> BlockId {
         if self.element_size_bits == 0 {
             self.palette.get_block_for_index(0)
         } else {
@@ -134,7 +129,7 @@ impl BlockLayer {
         }
     }
 
-    fn set(&mut self, x: u32, y: u32, block_id: BlockId) {
+    pub fn set(&mut self, x: u32, y: u32, block_id: BlockId) {
         // find the palette index for this block, adding it if necessary
         let palette_index = self.palette.get_or_add_index_for_block(block_id);
         let element_size_bits = self.palette.index_size_bits();
@@ -152,7 +147,7 @@ impl BlockLayer {
         self.segments[segment_index] |= palette_index << bit_index_in_segment; // set
     }
 
-    fn iter<'a>(&'a self) -> impl Iterator<Item = BlockId> + 'a {
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = BlockId> + 'a {
         if self.element_size_bits == 0 {
             Either::Left(repeat_n(
                 self.palette.get_block_for_index(0),
@@ -176,7 +171,7 @@ impl BlockLayer {
         }
     }
 
-    fn resize_elements(&mut self, new_element_size_bits: usize) {
+    pub fn resize_elements(&mut self, new_element_size_bits: usize) {
         let elements_per_segment = div_pow2(usize::BITS as usize, new_element_size_bits);
         let segment_count = div_pow2(CHUNK_SIZE_SQUARED, elements_per_segment);
 

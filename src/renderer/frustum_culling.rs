@@ -66,14 +66,9 @@ impl FrustumCullingRegions {
         let position_in_grid = (chunk_pos.as_ivec3() - self.grid_pos_in_chunks)
             .div_euclid(self.region_size_in_chunks.as_ivec3());
 
-        if self
-            .grid_size
-            .contains_ivec3(position_in_grid)
-        {
+        if self.grid_size.contains_ivec3(position_in_grid) {
             // check large frustum culling region first, to skip many frustum tests
-            let region_index = self
-                .grid_size
-                .flatten(position_in_grid.as_uvec3());
+            let region_index = self.grid_size.flatten(position_in_grid.as_uvec3());
 
             if !self.regions_visible[region_index] {
                 return false;

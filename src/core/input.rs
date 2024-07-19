@@ -86,37 +86,25 @@ impl Input {
     }
 
     pub fn is_key_just_pressed(&self, key_code: KeyCode) -> bool {
-        self.keys_held.contains(&key_code)
-            && !self
-                .keys_held_last_frame
-                .contains(&key_code)
+        self.keys_held.contains(&key_code) && !self.keys_held_last_frame.contains(&key_code)
     }
 
     pub fn is_key_just_released(&self, key_code: KeyCode) -> bool {
-        self.keys_held_last_frame
-            .contains(&key_code)
-            && !self.keys_held.contains(&key_code)
+        self.keys_held_last_frame.contains(&key_code) && !self.keys_held.contains(&key_code)
     }
 
     pub fn is_mouse_button_down(&self, button: MouseButton) -> bool {
-        self.mouse_buttons_held
-            .contains(&button)
+        self.mouse_buttons_held.contains(&button)
     }
 
     pub fn is_mouse_button_just_pressed(&self, button: MouseButton) -> bool {
-        self.mouse_buttons_held
-            .contains(&button)
-            && !self
-                .mouse_buttons_held_last_frame
-                .contains(&button)
+        self.mouse_buttons_held.contains(&button)
+            && !self.mouse_buttons_held_last_frame.contains(&button)
     }
 
     pub fn is_mouse_button_just_released(&self, button: MouseButton) -> bool {
-        self.mouse_buttons_held_last_frame
-            .contains(&button)
-            && !self
-                .mouse_buttons_held
-                .contains(&button)
+        self.mouse_buttons_held_last_frame.contains(&button)
+            && !self.mouse_buttons_held.contains(&button)
     }
 
     pub fn mouse_delta(&self) -> DVec2 {

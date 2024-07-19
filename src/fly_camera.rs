@@ -1,7 +1,10 @@
 use glam::{EulerRot, Quat, Vec3};
 use winit::keyboard::KeyCode;
 
-use crate::{input::Input, time::Time, util::transform::Transform};
+use crate::{
+    core::{input::Input, time::Time},
+    util::transform::Transform,
+};
 
 pub const DEFAULT_SPEED: f32 = 10.0;
 pub const DEFAULT_SENSITIVITY: f32 = 0.01;

@@ -372,12 +372,10 @@ where
         sampler_descriptor: wgpu::SamplerDescriptor<'static>,
     ) -> Self {
         let sampler = device.create_sampler(&sampler_descriptor);
-        let view = wrapped
-            .texture()
-            .create_view(&wgpu::TextureViewDescriptor {
-                dimension: Some(wrapped.view_dimension()),
-                ..Default::default()
-            });
+        let view = wrapped.texture().create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wrapped.view_dimension()),
+            ..Default::default()
+        });
 
         Self {
             wrapped,

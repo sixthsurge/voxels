@@ -42,8 +42,8 @@ impl LoadArea {
     /// returns index of the given chunk in the chunk arena.
     /// Otherwise returns None
     pub fn get_chunk_index(&self, chunk_pos: &ChunkPosition) -> Option<Index> {
-        self.get_array_index(chunk_pos)
-            .and_then(|array_index| match self.chunk_states[array_index] {
+        self.get_array_index(chunk_pos).and_then(|array_index| {
+            match self.chunk_states[array_index] {
                 ChunkState::Unloaded | ChunkState::Loading(_) => None,
                 ChunkState::Loaded(pos, index) => {
                     if pos == *chunk_pos {
@@ -52,7 +52,8 @@ impl LoadArea {
                         None
                     }
                 }
-            })
+            }
+        })
     }
 
     /// True if the given chunk in the area is loaded

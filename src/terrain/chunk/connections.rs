@@ -2,22 +2,20 @@ use std::collections::VecDeque;
 
 use glam::UVec3;
 
-use crate::{
+use super::super::{
     block::{BlockId, BLOCKS},
-    terrain::{
-        chunk::{CHUNK_SIZE_CUBED, CHUNK_SIZE_U32},
-        position_types::LocalBlockPosition,
-    },
-    util::face::{FaceIndex, FACE_NORMALS},
+    chunk::{CHUNK_SIZE_CUBED, CHUNK_SIZE_U32},
+    position_types::LocalBlockPosition,
 };
+use crate::util::face::{FaceIndex, FACE_NORMALS};
 
 /// "Visibility graph" from https://tomcc.github.io/2014/08/31/visibility-1.html
 /// For each pair of faces, stores whether the faces are connected by non-solid blocks
 #[derive(Clone, Copy, Debug)]
-pub struct VisibilityGraph(u16);
+pub struct ChunkConnections(u16);
 
-impl VisibilityGraph {
-    /// Compute the visibility graph for the given block array
+impl ChunkConnections {
+    /// Compute the connections for the given block array
     pub fn compute(blocks: &[BlockId]) -> Self {
         let mut connection_bits: u16 = 0;
         let mut explored = [false; CHUNK_SIZE_CUBED];
@@ -46,10 +44,7 @@ impl VisibilityGraph {
                     }
 
                     // skip opaque blocks
-                    if BLOCKS[blocks[array_index].0 as usize]
-                        .model
-                        .is_opaque()
-                    {
+                    if BLOCKS[blocks[array_index].0 as usize].model.is_opaque() {
                         continue;
                     }
 
@@ -71,10 +66,7 @@ impl VisibilityGraph {
                                 if explored[array_index] {
                                     continue;
                                 }
-                                if BLOCKS[blocks[array_index].0 as usize]
-                                    .model
-                                    .is_opaque()
-                                {
+                                if BLOCKS[blocks[array_index].0 as usize].model.is_opaque() {
                                     continue;
                                 }
                                 frontier.push_back(neighbour_pos);

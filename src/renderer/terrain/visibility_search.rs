@@ -3,7 +3,7 @@ use glam::{IVec3, Vec3};
 use itertools::Itertools;
 
 use crate::{
-    render::frustum_culling::FrustumCullingRegions,
+    renderer::frustum_culling::FrustumCullingRegions,
     terrain::{
         chunk::{Chunk, CHUNK_SIZE},
         load_area::LoadArea,
@@ -18,8 +18,6 @@ use crate::{
 /// Starting at the chunk containing the camera, visit each neighbouring chunk in a forwards
 /// direction that is visible through that chunk, using the "visibility graphs" computed when
 /// the chunks are loaded.
-///
-/// When a chunk is visited, `draw_fn` is called given the chunk as a parameter
 ///
 /// This has the following effects:
 /// * Obscured areas like caves are often skipped and do not even need to be meshed
@@ -46,11 +44,8 @@ pub fn visibility_search<'terrain>(
     let mut seen = vec![false; load_area.size().product()];
 
     // start at the camera position
-    let camera_chunk_pos = ChunkPosition::from(
-        (camera_pos / (CHUNK_SIZE as f32))
-            .floor()
-            .as_ivec3(),
-    );
+    let camera_chunk_pos =
+        ChunkPosition::from((camera_pos / (CHUNK_SIZE as f32)).floor().as_ivec3());
     let Some(camera_chunk) = terrain.get_chunk(load_area_index, &camera_chunk_pos) else {
         return Vec::new();
     };
@@ -75,7 +70,7 @@ pub fn visibility_search<'terrain>(
                             // only visit chunks which are connected via the current chunk from the previous
                             // face to the current face
                             step.chunk
-                                .visibility_graph()
+                                .connections()
                                 .connected(FaceIndex(dir), FaceIndex(last_dir).opposite())
                         } else {
                             false
@@ -128,13 +123,8 @@ struct SearchStep<'a> {
 fn mark_seen(seen: &mut Vec<bool>, load_area: &LoadArea, chunk_pos: &ChunkPosition) -> bool {
     let position_in_grid = (*chunk_pos - load_area.position()).as_ivec3();
 
-    if load_area
-        .size()
-        .contains_ivec3(position_in_grid)
-    {
-        let index = load_area
-            .size()
-            .flatten(position_in_grid.as_uvec3());
+    if load_area.size().contains_ivec3(position_in_grid) {
+        let index = load_area.size().flatten(position_in_grid.as_uvec3());
 
         let previously_visited = seen[index];
         seen[index] = true;

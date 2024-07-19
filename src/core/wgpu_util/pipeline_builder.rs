@@ -1,4 +1,4 @@
-use super::mesh::Vertex;
+use super::vertex::Vertex;
 
 /// Helper struct to create render pipelines and their layouts using the builder pattern
 pub struct RenderPipelineBuilder<'a> {
@@ -51,25 +51,19 @@ impl<'a> RenderPipelineBuilder<'a> {
             label: self.label,
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
-                module: self
-                    .vertex_module
-                    .expect("missing vertex shader module"),
-                entry_point: self
-                    .vertex_entry_point
-                    .expect("missing vertex entry point"),
+                module: self.vertex_module.expect("missing vertex shader module"),
+                entry_point: self.vertex_entry_point.expect("missing vertex entry point"),
                 buffers: &self.vertex_buffer_layouts,
                 compilation_options: self.vertex_compilation_options,
             },
-            fragment: self
-                .fragment_module
-                .map(|module| wgpu::FragmentState {
-                    module,
-                    entry_point: self
-                        .fragment_entry_point
-                        .expect("missing fragment entry point"),
-                    compilation_options: self.fragment_compilation_options,
-                    targets: &self.targets,
-                }),
+            fragment: self.fragment_module.map(|module| wgpu::FragmentState {
+                module,
+                entry_point: self
+                    .fragment_entry_point
+                    .expect("missing fragment entry point"),
+                compilation_options: self.fragment_compilation_options,
+                targets: &self.targets,
+            }),
             primitive: wgpu::PrimitiveState {
                 topology: self.topology,
                 strip_index_format: None,
@@ -94,6 +88,7 @@ impl<'a> RenderPipelineBuilder<'a> {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         });
 
         (pipeline, pipeline_layout)
@@ -105,8 +100,7 @@ impl<'a> RenderPipelineBuilder<'a> {
     }
 
     pub fn with_bind_group_layout(mut self, bind_group_layout: &'a wgpu::BindGroupLayout) -> Self {
-        self.bind_group_layouts
-            .push(bind_group_layout);
+        self.bind_group_layouts.push(bind_group_layout);
         self
     }
 
@@ -114,8 +108,7 @@ impl<'a> RenderPipelineBuilder<'a> {
         mut self,
         vertex_buffer_layout: wgpu::VertexBufferLayout<'static>,
     ) -> Self {
-        self.vertex_buffer_layouts
-            .push(vertex_buffer_layout);
+        self.vertex_buffer_layouts.push(vertex_buffer_layout);
         self
     }
 
@@ -168,12 +161,11 @@ impl<'a> RenderPipelineBuilder<'a> {
         blend: Option<wgpu::BlendState>,
         write_mask: wgpu::ColorWrites,
     ) -> Self {
-        self.targets
-            .push(Some(wgpu::ColorTargetState {
-                format,
-                blend,
-                write_mask,
-            }));
+        self.targets.push(Some(wgpu::ColorTargetState {
+            format,
+            blend,
+            write_mask,
+        }));
         self
     }
 

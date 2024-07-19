@@ -1,5 +1,3 @@
-
-
 /// Helper struct to construct bind groups and bind group layouts together using the builder
 /// pattern
 pub struct BindGroupBuilder<'a> {
@@ -63,8 +61,7 @@ impl<'a> BindGroupBuilder<'a> {
         let binding_resource = buffer.as_entire_binding();
 
         self.layout_entries.push(layout_entry);
-        self.binding_resources
-            .push(binding_resource);
+        self.binding_resources.push(binding_resource);
         self
     }
 
@@ -91,8 +88,7 @@ impl<'a> BindGroupBuilder<'a> {
         let binding_resource = wgpu::BindingResource::TextureView(view);
 
         self.layout_entries.push(layout_entry);
-        self.binding_resources
-            .push(binding_resource);
+        self.binding_resources.push(binding_resource);
         self
     }
 
@@ -114,8 +110,7 @@ impl<'a> BindGroupBuilder<'a> {
         let binding_resource = wgpu::BindingResource::Sampler(sampler);
 
         self.layout_entries.push(layout_entry);
-        self.binding_resources
-            .push(binding_resource);
+        self.binding_resources.push(binding_resource);
         self
     }
 }

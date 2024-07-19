@@ -1,3 +1,7 @@
+use std::collections::VecDeque;
+
+use super::super::position_types::LocalBlockPosition;
+
 /// Emitted light values for one block packed in 16 bits
 /// Bits 0 to 4   | Red component
 /// Bits 4 to 8   | Green component
@@ -79,9 +83,29 @@ impl EmittedLight {
     }
 }
 
-/// Skylight value for one block
-#[derive(Clone, Copy, Debug)]
-pub struct Skylight(u8);
+pub struct EmittedLightQueue(VecDeque<EmittedLightStep>);
+
+impl EmittedLightQueue {
+    pub fn new() -> Self {
+        Self(VecDeque::new())
+    }
+}
+
+pub struct EmittedLightStep {
+    pos: LocalBlockPosition,
+    light: EmittedLight,
+}
+
+pub trait EmittedLightStore {
+    fn read(pos: LocalBlockPosition) -> EmittedLight;
+    fn write(pos: LocalBlockPosition, value: EmittedLight);
+}
+
+pub fn update_emitted_light<Store>(store: &mut Store, queue: &mut EmittedLightQueue)
+where
+    Store: EmittedLightStore,
+{
+}
 
 #[cfg(test)]
 mod tests {

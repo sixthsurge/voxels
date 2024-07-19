@@ -2,13 +2,11 @@ use bracket_noise::prelude::*;
 use glam::UVec3;
 
 use super::{
+    block::{BlockId, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LAMP_ORANGE},
     chunk::{Chunk, CHUNK_SIZE, CHUNK_SIZE_CUBED, CHUNK_SIZE_U32},
     position_types::ChunkPosition,
 };
-use crate::{
-    block::{BlockId, BLOCK_DIRT, BLOCK_GRASS},
-    util::size::Size3,
-};
+use crate::util::size::Size3;
 
 pub fn generate_chunk(pos: ChunkPosition) -> Chunk {
     let mut blocks = vec![BlockId(0); CHUNK_SIZE_CUBED];
@@ -48,10 +46,14 @@ pub fn generate_chunk(pos: ChunkPosition) -> Chunk {
                         }
                     }
                     solid_above = true;
+
+                    if rand::random::<f32>() > 0.999 {
+                        blocks[index] = BLOCK_LAMP_ORANGE;
+                    }
                 }
             }
         }
     }
 
-    Chunk::new(pos, blocks)
+    Chunk::new(pos, &blocks)
 }

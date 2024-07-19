@@ -4,7 +4,7 @@ use pollster::FutureExt;
 use winit::{dpi::PhysicalSize, window::Window};
 
 #[derive(Debug)]
-pub struct RenderContext {
+pub struct WgpuContext {
     pub window_size: PhysicalSize<u32>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -12,7 +12,7 @@ pub struct RenderContext {
     pub surface_config: wgpu::SurfaceConfiguration,
 }
 
-impl RenderContext {
+impl WgpuContext {
     pub fn new(window: Arc<Window>) -> Self {
         let window_size = window.inner_size();
 
@@ -31,8 +31,7 @@ impl RenderContext {
         self.window_size = new_size;
         self.surface_config.width = new_size.width;
         self.surface_config.height = new_size.height;
-        self.surface
-            .configure(&self.device, &self.surface_config);
+        self.surface.configure(&self.device, &self.surface_config);
     }
 
     pub fn get_surface_texture(&mut self) -> Option<wgpu::SurfaceTexture> {
@@ -40,8 +39,7 @@ impl RenderContext {
             Ok(tex) => Some(tex),
             // Reconfigure the surface if lost
             Err(wgpu::SurfaceError::Lost) => {
-                self.surface
-                    .configure(&self.device, &self.surface_config);
+                self.surface.configure(&self.device, &self.surface_config);
                 None
             }
             Err(wgpu::SurfaceError::OutOfMemory) => {
@@ -88,6 +86,7 @@ fn init_wgpu(
             &wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::POLYGON_MODE_LINE,
                 required_limits: wgpu::Limits::default(),
+                memory_hints: wgpu::MemoryHints::Performance,
                 label: None,
             },
             None,

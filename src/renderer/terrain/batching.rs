@@ -14,16 +14,18 @@ use super::{
     ChunkMeshData, ChunkMeshStatus,
 };
 use crate::{
-    block::BLOCK_AIR,
-    render::render_context::RenderContext,
-    tasks::{TaskId, TaskPriority, Tasks},
+    core::{
+        tasks::{TaskId, TaskPriority, Tasks},
+        wgpu_util::wgpu_context::WgpuContext,
+    },
     terrain::{
-        chunk::{side::ChunkSide, storage::ChunkBlockStorage, Chunk, CHUNK_SIZE, CHUNK_SIZE_I32},
+        block::BLOCK_AIR,
+        chunk::{block_store::ChunkBlockStore, side::ChunkSide, Chunk, CHUNK_SIZE, CHUNK_SIZE_I32},
         load_area::LoadArea,
         position_types::ChunkPosition,
         Terrain,
     },
-    util::{measure_time::measure_time, size::Size3},
+    util::size::Size3,
 };
 
 /// Size of one chunk batch on each axis, in chunks
@@ -72,7 +74,7 @@ pub struct ChunkBatch {
 impl ChunkBatch {
     pub fn new(
         pos: IVec3,
-        cx: &RenderContext,
+        wgpu: &WgpuContext,
         uniform_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         let batch_translation = pos.as_vec3() * (CHUNK_BATCH_TOTAL_SIZE as f32);
@@ -83,7 +85,7 @@ impl ChunkBatch {
             pad: 0.0,
         };
 
-        let uniform_buffer = cx
+        let uniform_buffer = wgpu
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Chunk Batch Uniform Buffer"),
@@ -91,7 +93,7 @@ impl ChunkBatch {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
-        let uniform_bind_group = cx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let uniform_bind_group = wgpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Chunk Batch Uniforms Bind Group"),
             layout: uniform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
@@ -116,7 +118,7 @@ impl ChunkBatch {
     }
 
     /// Reset this chunk batch so that it can be reused
-    pub fn reset(&mut self, cx: &RenderContext, pos: IVec3) {
+    pub fn reset(&mut self, wgpu: &WgpuContext, pos: IVec3) {
         self.vertex_buffer_needs_updating = false;
         self.position = pos;
         self.vertex_count = 0;
@@ -132,7 +134,7 @@ impl ChunkBatch {
             pad: 0.0,
         };
 
-        cx.queue
+        wgpu.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
     }
 
@@ -294,7 +296,7 @@ pub struct ChunkBatches {
 
 impl ChunkBatches {
     pub fn new(
-        cx: &RenderContext,
+        wgpu: &WgpuContext,
         load_area: &LoadArea,
         uniform_bind_group_layout: wgpu::BindGroupLayout,
     ) -> Self {
@@ -307,14 +309,14 @@ impl ChunkBatches {
         )
         .map(|(x, y, z)| {
             let pos = Size3::new(x, y, z).as_ivec3();
-            ChunkBatch::new(pos, cx, &uniform_bind_group_layout)
+            ChunkBatch::new(pos, wgpu, &uniform_bind_group_layout)
         })
         .collect_vec();
 
         let (finished_mesh_tx, finished_mesh_rx) = mpsc::channel();
 
         let shared_index_buffer =
-            SharedIndexBuffer::new(&cx.device, SharedIndexBuffer::INITIAL_VERTEX_COUNT);
+            SharedIndexBuffer::new(&wgpu.device, SharedIndexBuffer::INITIAL_VERTEX_COUNT);
 
         Self {
             batches,
@@ -346,7 +348,7 @@ impl ChunkBatches {
     }
 
     /// Called each frame before rendering terrain to update the chunk batches
-    pub fn update(&mut self, cx: &RenderContext, terrain: &Terrain, load_area_index: Index) {
+    pub fn update(&mut self, wgpu: &WgpuContext, terrain: &Terrain, load_area_index: Index) {
         // check for newly finished meshes
         while let Ok(received) = self.finished_mesh_rx.try_recv() {
             let load_area = terrain
@@ -361,14 +363,14 @@ impl ChunkBatches {
         let mut highest_vertex_count = self.shared_index_buffer.vertex_count;
         for batch in &mut self.batches {
             if batch.vertex_buffer_needs_updating {
-                batch.update_vertex_buffer(&cx.device, &cx.queue);
+                batch.update_vertex_buffer(&wgpu.device, &wgpu.queue);
                 highest_vertex_count = highest_vertex_count.max(batch.vertex_count());
             }
         }
 
         // grow the shared index buffer if necessary
         if highest_vertex_count > self.shared_index_buffer.vertex_count {
-            self.shared_index_buffer = SharedIndexBuffer::new(&cx.device, highest_vertex_count);
+            self.shared_index_buffer = SharedIndexBuffer::new(&wgpu.device, highest_vertex_count);
         }
     }
 
@@ -405,7 +407,7 @@ impl ChunkBatches {
     /// Returns a mutable reference to the repurposed chunk batch
     pub fn get_or_repurpose_batch(
         &mut self,
-        cx: &RenderContext,
+        wgpu: &WgpuContext,
         tasks: &mut Tasks,
         batch_pos: &IVec3,
     ) -> &mut ChunkBatch {
@@ -423,7 +425,7 @@ impl ChunkBatches {
                 }
             }
 
-            batch.reset(cx, *batch_pos);
+            batch.reset(wgpu, *batch_pos);
         }
 
         batch
@@ -444,7 +446,7 @@ impl ChunkBatches {
         let queued_instant = Instant::now();
 
         // skip meshing air chunks
-        if let ChunkBlockStorage::Uniform(block_id) = chunk.get_block_storage() {
+        if let ChunkBlockStore::Uniform(block_id) = chunk.get_block_store() {
             if *block_id == BLOCK_AIR {
                 let _ = self.finished_mesh_tx.send((
                     chunk.position(),
@@ -473,7 +475,7 @@ impl ChunkBatches {
 
         // prepare a snapshot of data about the chunk to be passed to the meshing thread
         let chunk_pos = chunk.position();
-        let blocks = chunk.get_block_storage().clone();
+        let block_store = chunk.get_block_store().clone();
         let surrounding_sides =
             ChunkSide::get_surrounding_sides(chunk_pos, terrain, load_area_index);
 
@@ -487,7 +489,7 @@ impl ChunkBatches {
             },
             move || {
                 // move `blocks` and `surrounding sides` to the new thread
-                let (blocks, surrounding_sides) = (blocks, surrounding_sides);
+                let (blocks, surrounding_sides) = (block_store, surrounding_sides);
                 let blocks = blocks.as_block_array();
 
                 let translation = chunk_pos

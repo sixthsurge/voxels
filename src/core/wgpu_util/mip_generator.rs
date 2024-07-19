@@ -9,9 +9,7 @@ pub struct MipGenerator {
 
 impl MipGenerator {
     pub fn new(device: &wgpu::Device, texture_format: wgpu::TextureFormat) -> Self {
-        // TODO get shader from proper asset system
-        let shader =
-            device.create_shader_module(wgpu::include_wgsl!("../../../assets/shader/blit.wgsl"));
+        let shader = device.create_shader_module(wgpu::include_wgsl!("mip.wgsl"));
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("blit"),
@@ -35,6 +33,7 @@ impl MipGenerator {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
         });
 
         let bind_group_layout = pipeline.get_bind_group_layout(0);
