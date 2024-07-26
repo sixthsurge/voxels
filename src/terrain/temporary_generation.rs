@@ -3,7 +3,7 @@ use glam::UVec3;
 
 use super::{
     block::{BlockId, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LAMP_ORANGE},
-    chunk::{side::ChunkSideLight, Chunk, CHUNK_SIZE, CHUNK_SIZE_CUBED, CHUNK_SIZE_U32},
+    chunk::{Chunk, CHUNK_SIZE, CHUNK_SIZE_CUBED, CHUNK_SIZE_U32},
     position_types::ChunkPosition,
 };
 use crate::util::size::Size3;

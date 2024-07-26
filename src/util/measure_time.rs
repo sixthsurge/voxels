@@ -12,5 +12,3 @@ macro_rules! measure_time {
         result
     }};
 }
-
-pub(crate) use measure_time;

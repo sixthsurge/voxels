@@ -1,4 +1,4 @@
-use glam::{IVec2, IVec3, UVec2, UVec3, Vec2, Vec3, Vec4};
+use glam::{IVec3, UVec2, UVec3, Vec2, Vec3, Vec4};
 
 use self::face_dir::*;
 use super::vertex::TerrainVertex;
@@ -8,12 +8,9 @@ use crate::{
         chunk::{
             light_store::ChunkLightStore,
             side::{ChunkSideFaces, ChunkSideLight},
-            CHUNK_SIZE, CHUNK_SIZE_I32, CHUNK_SIZE_LOG2, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32,
+            CHUNK_SIZE, CHUNK_SIZE_I32, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32,
         },
-        lighting::{
-            emitted_light::{self, EmittedLight},
-            LightStore,
-        },
+        lighting::{emitted_light::EmittedLight, LightStore},
         position_types::LocalBlockPosition,
     },
     util::face::{FaceIndex, FACE_BITANGENTS, FACE_TANGENTS},

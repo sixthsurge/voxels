@@ -1,13 +1,8 @@
 use std::collections::VecDeque;
 
-use glam::IVec3;
-use wgpu::naga::proc::Emitter;
-
-use crate::util::face::FaceIndex;
-
 use self::emitted_light::EmittedLight;
-
 use super::position_types::LocalBlockPosition;
+use crate::util::face::FaceIndex;
 
 pub mod emitted_light;
 
@@ -20,6 +15,7 @@ pub trait LightStore<LightValue> {
 pub struct LightPropagationStep<LightValue> {
     pub position: LocalBlockPosition,
     pub light: LightValue,
+    pub is_repair_step: bool,
 }
 
 #[derive(Clone, Copy, Debug)]

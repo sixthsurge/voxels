@@ -8,10 +8,10 @@ use glam::{IVec3, Vec3};
 use itertools::Itertools;
 
 use self::{
-    block::{BlockId, BLOCKS},
+    block::BlockId,
     chunk::{side::ChunkSideLight, Chunk, CHUNK_SIZE, CHUNK_SIZE_RECIP},
     event::TerrainEvent,
-    lighting::{emitted_light::EmittedLight, LightUpdatesOutsideChunk},
+    lighting::LightUpdatesOutsideChunk,
     load_area::{LoadArea, LoadAreaState},
     position_types::{ChunkPosition, GlobalBlockPosition},
 };

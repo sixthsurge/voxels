@@ -8,11 +8,11 @@ use super::{
     block::{BlockId, BLOCKS, BLOCK_AIR},
     lighting::{
         emitted_light::{
-            self, get_initial_emitted_light_queue, propagate_emitted_light,
+            get_initial_emitted_light_queue, propagate_emitted_light,
             propagate_emitted_light_shadow, EmittedLight,
         },
-        LightPropagationQueue, LightPropagationStep, LightUpdate, LightUpdatesOutsideChunk,
-        ShadowPropagationQueue, ShadowPropagationStep,
+        LightPropagationQueue, LightUpdate, LightUpdatesOutsideChunk, ShadowPropagationQueue,
+        ShadowPropagationStep,
     },
     position_types::{ChunkPosition, LocalBlockPosition},
 };
@@ -93,15 +93,6 @@ impl Chunk {
         }
 
         self.block_store.set_block(pos, new_id);
-
-        // Update emitted light propagation queue
-        let block = &BLOCKS[new_id.as_usize()];
-        if block.emission != IVec3::ZERO {
-            self.emitted_light_queue.push_back(LightPropagationStep {
-                position: pos,
-                light: EmittedLight::from_ivec3(block.emission),
-            });
-        }
 
         // Update emitted light shadow propagation queue
         self.emitted_light_shadow_queue

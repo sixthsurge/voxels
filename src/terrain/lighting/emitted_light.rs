@@ -1,11 +1,12 @@
 use glam::IVec3;
+use rustc_hash::FxHashSet;
 
 use crate::{
     terrain::{
         block::{BlockId, BLOCKS},
         chunk::{
-            block_store::ChunkBlockStore, side::ChunkSideLight, CHUNK_SIZE, CHUNK_SIZE_I32,
-            CHUNK_SIZE_LOG2,
+            block_store::ChunkBlockStore, light_store, side::ChunkSideLight, CHUNK_SIZE,
+            CHUNK_SIZE_I32, CHUNK_SIZE_LOG2,
         },
         position_types::LocalBlockPosition,
     },
@@ -29,7 +30,7 @@ pub fn propagate_emitted_light<Store: LightStore<EmittedLight>>(
         let light_old = light_store.read(step.position);
         let light_new = EmittedLight::max(light_old, step.light);
 
-        if EmittedLight::less(light_old, light_new) == 0 {
+        if EmittedLight::less(light_old, light_new) == 0 && !step.is_repair_step {
             continue;
         }
 
@@ -59,6 +60,7 @@ pub fn propagate_emitted_light<Store: LightStore<EmittedLight>>(
                     light_propagation_queue.push_back(LightPropagationStep {
                         position: neighbour_pos,
                         light: light_diminished,
+                        is_repair_step: false,
                     });
                 }
             } else {
@@ -69,6 +71,7 @@ pub fn propagate_emitted_light<Store: LightStore<EmittedLight>>(
                     LightUpdate::EmittedLight(LightPropagationStep {
                         position: pos_in_neighbour_chunk,
                         light: light_diminished,
+                        is_repair_step: false,
                     }),
                 ))
             }
@@ -85,7 +88,11 @@ pub fn propagate_emitted_light_shadow<Store: LightStore<EmittedLight>>(
     light_updates_outside_chunk: &mut LightUpdatesOutsideChunk,
     blocks: &ChunkBlockStore,
 ) {
+    let mut visited = FxHashSet::default();
+
     while let Some(step) = shadow_propagation_queue.pop_front() {
+        visited.insert(step.position);
+
         if step.depth == 0 {
             // Repair lighting by re-queueing the light at the edge of the shadow
             // for propagation
@@ -95,13 +102,10 @@ pub fn propagate_emitted_light_shadow<Store: LightStore<EmittedLight>>(
                 light_propagation_queue.push_back(LightPropagationStep {
                     position: step.position,
                     light,
+                    is_repair_step: true,
                 });
             }
 
-            continue;
-        }
-
-        if light_store.read(step.position) == EmittedLight::ZERO {
             continue;
         }
 
@@ -115,25 +119,23 @@ pub fn propagate_emitted_light_shadow<Store: LightStore<EmittedLight>>(
             light_propagation_queue.push_back(LightPropagationStep {
                 position: step.position,
                 light: EmittedLight::from_ivec3(block.emission),
+                is_repair_step: true,
             });
         }
-
         // Propagate shadow to neighbours
-        for (face_index, neighbour_offset) in FACE_NORMALS.iter().enumerate() {
+        for (neighbour_index, neighbour_offset) in FACE_NORMALS.iter().enumerate() {
             if let Some(neighbour_pos) = step.position.try_add(*neighbour_offset) {
-                if light_store.read(neighbour_pos) == EmittedLight::ZERO {
-                    continue;
+                if visited.insert(neighbour_pos) {
+                    shadow_propagation_queue.push_back(ShadowPropagationStep {
+                        position: neighbour_pos,
+                        depth: step.depth - 1,
+                    });
                 }
-
-                shadow_propagation_queue.push_back(ShadowPropagationStep {
-                    position: neighbour_pos,
-                    depth: step.depth - 1,
-                });
             } else {
                 let pos_in_neighbour_chunk = step.position.wrapping_add(*neighbour_offset);
 
                 light_updates_outside_chunk.push((
-                    FaceIndex(face_index),
+                    FaceIndex(neighbour_index),
                     LightUpdate::EmittedLightShadow(ShadowPropagationStep {
                         position: pos_in_neighbour_chunk,
                         depth: step.depth - 1,
@@ -160,6 +162,7 @@ pub fn get_initial_emitted_light_queue(
                 Some(LightPropagationStep {
                     position: LocalBlockPosition::from_array_index(block_index),
                     light: EmittedLight::from_ivec3(block.emission),
+                    is_repair_step: false,
                 })
             } else {
                 None
@@ -192,6 +195,7 @@ pub fn get_initial_emitted_light_queue(
                         LightPropagationStep {
                             position,
                             light: light.decrement_and_saturate(),
+                            is_repair_step: false,
                         }
                     })
                     .filter(move |step| {

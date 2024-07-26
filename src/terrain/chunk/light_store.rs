@@ -1,9 +1,8 @@
+use super::CHUNK_SIZE_CUBED;
 use crate::terrain::{
     lighting::{emitted_light::EmittedLight, LightStore},
     position_types::LocalBlockPosition,
 };
-
-use super::CHUNK_SIZE_CUBED;
 
 #[derive(Clone, Debug)]
 pub struct ChunkLightStore {
