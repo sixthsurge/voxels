@@ -5,4 +5,5 @@ pub enum TerrainEvent {
     ChunkLoaded(ChunkPosition),
     ChunkUnloaded(ChunkPosition),
     BlockModified(ChunkPosition, LocalBlockPosition),
+    ChunkLightUpdate(ChunkPosition),
 }

@@ -182,8 +182,9 @@ impl TerrainRenderer {
                 TerrainEvent::ChunkLoaded(chunk_pos) => self.chunk_loaded(*chunk_pos),
                 TerrainEvent::ChunkUnloaded(chunk_pos) => self.chunk_unloaded(*chunk_pos),
                 TerrainEvent::BlockModified(chunk_pos, local_block_pos) => {
-                    self.chunk_modified(chunk_pos, local_block_pos)
+                    self.block_modified(chunk_pos, local_block_pos)
                 }
+                TerrainEvent::ChunkLightUpdate(chunk_pos) => self.chunk_modified(chunk_pos),
             }
         }
 
@@ -356,7 +357,17 @@ impl TerrainRenderer {
     }
 
     /// Called when a block in a chunk has been modified
-    fn chunk_modified(&mut self, chunk_pos: &ChunkPosition, _block_pos: &LocalBlockPosition) {
+    fn block_modified(&mut self, chunk_pos: &ChunkPosition, _block_pos: &LocalBlockPosition) {
+        let (batch_pos, chunk_pos_in_batch) =
+            ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(chunk_pos);
+
+        if let Some(batch) = self.chunk_batches.get_batch_mut(&batch_pos) {
+            batch.mark_outdated(&chunk_pos_in_batch);
+        }
+    }
+
+    /// Called when a chunk has been modified but we do not know which block
+    fn chunk_modified(&mut self, chunk_pos: &ChunkPosition) {
         let (batch_pos, chunk_pos_in_batch) =
             ChunkBatches::get_batch_pos_and_chunk_pos_in_batch(chunk_pos);
 

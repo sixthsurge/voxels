@@ -44,7 +44,11 @@ impl ChunkConnections {
                     }
 
                     // skip opaque blocks
-                    if BLOCKS[blocks[array_index].0 as usize].model.is_opaque() {
+                    if BLOCKS[blocks[array_index].0 as usize]
+                        .model
+                        .opaque_faces_mask()
+                        != 0
+                    {
                         continue;
                     }
 
@@ -66,7 +70,11 @@ impl ChunkConnections {
                                 if explored[array_index] {
                                     continue;
                                 }
-                                if BLOCKS[blocks[array_index].0 as usize].model.is_opaque() {
+                                if BLOCKS[blocks[array_index].0 as usize]
+                                    .model
+                                    .opaque_faces_mask()
+                                    != 0
+                                {
                                     continue;
                                 }
                                 frontier.push_back(neighbour_pos);

@@ -1,16 +1,226 @@
-use std::collections::VecDeque;
+use glam::IVec3;
 
-use super::super::position_types::LocalBlockPosition;
+use crate::{
+    terrain::{
+        block::{BlockId, BLOCKS},
+        chunk::{
+            block_store::ChunkBlockStore, side::ChunkSideLight, CHUNK_SIZE, CHUNK_SIZE_I32,
+            CHUNK_SIZE_LOG2,
+        },
+        position_types::LocalBlockPosition,
+    },
+    util::face::{FaceIndex, FACE_BITANGENTS, FACE_NORMALS, FACE_TANGENTS},
+};
+
+use super::{
+    LightPropagationQueue, LightPropagationStep, LightStore, LightUpdate, LightUpdatesOutsideChunk,
+    ShadowPropagationQueue, ShadowPropagationStep,
+};
+
+/// Propagate emitted light within a chunk, returning the light updates to be
+/// applied outside of the chunk
+pub fn propagate_emitted_light<Store: LightStore<EmittedLight>>(
+    light_store: &mut Store,
+    light_propagation_queue: &mut LightPropagationQueue<EmittedLight>,
+    light_updates_outside_chunk: &mut LightUpdatesOutsideChunk,
+    blocks: &ChunkBlockStore,
+) {
+    while let Some(step) = light_propagation_queue.pop_front() {
+        let light_old = light_store.read(step.position);
+        let light_new = EmittedLight::max(light_old, step.light);
+
+        if EmittedLight::less(light_old, light_new) == 0 {
+            continue;
+        }
+
+        light_store.write(step.position, light_new);
+
+        let light_diminished = step.light.decrement_and_saturate();
+
+        if light_diminished == EmittedLight::ZERO {
+            continue;
+        }
+
+        // Propagate light to neighbours
+        for (face_index, neighbour_offset) in FACE_NORMALS.iter().enumerate() {
+            if let Some(neighbour_pos) = step.position.try_add(*neighbour_offset) {
+                let neighbour_block_id = blocks.get_block(neighbour_pos);
+                let neighbour_block = &BLOCKS[neighbour_block_id.as_usize()];
+                let existing_light_value = light_store.read(neighbour_pos);
+
+                let can_travel_into_block = neighbour_block
+                    .model
+                    .is_transparent_in_direction(FaceIndex(face_index).opposite());
+
+                let would_increase_light =
+                    EmittedLight::less(existing_light_value, light_diminished) != 0;
+
+                if can_travel_into_block && would_increase_light {
+                    light_propagation_queue.push_back(LightPropagationStep {
+                        position: neighbour_pos,
+                        light: light_diminished,
+                    });
+                }
+            } else {
+                let pos_in_neighbour_chunk = step.position.wrapping_add(*neighbour_offset);
+
+                light_updates_outside_chunk.push((
+                    FaceIndex(face_index),
+                    LightUpdate::EmittedLight(LightPropagationStep {
+                        position: pos_in_neighbour_chunk,
+                        light: light_diminished,
+                    }),
+                ))
+            }
+        }
+    }
+}
+
+/// Propagate absense of emitted light within a chunk, returning the shadow
+/// updates to be applied outside of the chunk
+pub fn propagate_emitted_light_shadow<Store: LightStore<EmittedLight>>(
+    light_store: &mut Store,
+    shadow_propagation_queue: &mut ShadowPropagationQueue,
+    light_propagation_queue: &mut LightPropagationQueue<EmittedLight>,
+    light_updates_outside_chunk: &mut LightUpdatesOutsideChunk,
+    blocks: &ChunkBlockStore,
+) {
+    while let Some(step) = shadow_propagation_queue.pop_front() {
+        if step.depth == 0 {
+            // Repair lighting by re-queueing the light at the edge of the shadow
+            // for propagation
+            let light = light_store.read(step.position);
+
+            if light != EmittedLight::ZERO {
+                light_propagation_queue.push_back(LightPropagationStep {
+                    position: step.position,
+                    light,
+                });
+            }
+
+            continue;
+        }
+
+        if light_store.read(step.position) == EmittedLight::ZERO {
+            continue;
+        }
+
+        light_store.write(step.position, EmittedLight::ZERO);
+
+        // Repair lighting by re-queueing any light emitting blocks encompassed in the shadow for
+        // propagation
+        let block_id = blocks.get_block(step.position);
+        let block = &BLOCKS[block_id.as_usize()];
+        if block.emission != IVec3::ZERO {
+            light_propagation_queue.push_back(LightPropagationStep {
+                position: step.position,
+                light: EmittedLight::from_ivec3(block.emission),
+            });
+        }
+
+        // Propagate shadow to neighbours
+        for (face_index, neighbour_offset) in FACE_NORMALS.iter().enumerate() {
+            if let Some(neighbour_pos) = step.position.try_add(*neighbour_offset) {
+                if light_store.read(neighbour_pos) == EmittedLight::ZERO {
+                    continue;
+                }
+
+                shadow_propagation_queue.push_back(ShadowPropagationStep {
+                    position: neighbour_pos,
+                    depth: step.depth - 1,
+                });
+            } else {
+                let pos_in_neighbour_chunk = step.position.wrapping_add(*neighbour_offset);
+
+                light_updates_outside_chunk.push((
+                    FaceIndex(face_index),
+                    LightUpdate::EmittedLightShadow(ShadowPropagationStep {
+                        position: pos_in_neighbour_chunk,
+                        depth: step.depth - 1,
+                    }),
+                ))
+            }
+        }
+    }
+}
+
+/// Returns a LightPropagationQueue for all of the light emitting blocks in the block array
+pub fn get_initial_emitted_light_queue(
+    blocks: &[BlockId],
+    surrounding_sides_light: &[Option<ChunkSideLight>],
+) -> LightPropagationQueue<EmittedLight> {
+    // blocks within chunk
+    let mut light_queue: LightPropagationQueue<EmittedLight> = blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(block_index, block_id)| {
+            let block = &BLOCKS[block_id.0 as usize];
+
+            if block.emission != IVec3::ZERO {
+                Some(LightPropagationStep {
+                    position: LocalBlockPosition::from_array_index(block_index),
+                    light: EmittedLight::from_ivec3(block.emission),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // blocks in neighbouring chunks
+    light_queue.extend(
+        surrounding_sides_light
+            .iter()
+            .enumerate()
+            .filter_map(|(side_index, side_opt)| side_opt.as_ref().map(|side| (side_index, side)))
+            .map(move |(side_index, side)| {
+                side.emitted
+                    .iter()
+                    .cloned()
+                    .enumerate()
+                    .filter(|(_, light)| light.decrement_and_saturate() != EmittedLight::ZERO)
+                    .map(move |(index_in_side, light)| {
+                        let u = index_in_side & (CHUNK_SIZE - 1);
+                        let v = index_in_side >> CHUNK_SIZE_LOG2;
+
+                        let position = LocalBlockPosition::ZERO.wrapping_add(
+                            FACE_NORMALS[side_index].max(IVec3::ZERO) * (CHUNK_SIZE_I32 - 1)
+                                + FACE_TANGENTS[side_index].abs() * u as i32
+                                + FACE_BITANGENTS[side_index].abs() * v as i32,
+                        );
+
+                        LightPropagationStep {
+                            position,
+                            light: light.decrement_and_saturate(),
+                        }
+                    })
+                    .filter(move |step| {
+                        let block_id = blocks[step.position.get_array_index()];
+                        let block = &BLOCKS[block_id.as_usize()];
+
+                        block
+                            .model
+                            .is_transparent_in_direction(FaceIndex(side_index))
+                    })
+            })
+            .flatten(),
+    );
+
+    light_queue
+}
 
 /// Emitted light values for one block packed in 16 bits
 /// Bits 0 to 4   | Red component
 /// Bits 4 to 8   | Green component
 /// Bits 8 to 12  | Blue component
 /// Bits 12 to 16 | Unused (can store skylight!)
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EmittedLight(u16);
 
 impl EmittedLight {
+    pub const ZERO: EmittedLight = EmittedLight(0);
+    pub const MAX_VALUE: u32 = 15;
+
     const COMPONENT_MASK: u16 = 0x0f0f;
     const BORROW_GUARD: u16 = 0x2020;
     const CARRY_MASK: u16 = 0x1010;
@@ -28,6 +238,11 @@ impl EmittedLight {
         debug_assert!((0..16).contains(&b));
 
         Self(r | g << 4 | b << 8)
+    }
+
+    /// Create a packed `EmittedLight` from the 3 light values
+    pub fn from_ivec3(rgb: IVec3) -> Self {
+        Self::from_rgb(rgb.x as u16, rgb.y as u16, rgb.z as u16)
     }
 
     /// Returns the underlying u16 storing the 3 light values
@@ -81,30 +296,6 @@ impl EmittedLight {
         // saturate underflowed values
         (d + (b >> 4)) & Self::COMPONENT_MASK
     }
-}
-
-pub struct EmittedLightQueue(VecDeque<EmittedLightStep>);
-
-impl EmittedLightQueue {
-    pub fn new() -> Self {
-        Self(VecDeque::new())
-    }
-}
-
-pub struct EmittedLightStep {
-    pos: LocalBlockPosition,
-    light: EmittedLight,
-}
-
-pub trait EmittedLightStore {
-    fn read(pos: LocalBlockPosition) -> EmittedLight;
-    fn write(pos: LocalBlockPosition, value: EmittedLight);
-}
-
-pub fn update_emitted_light<Store>(store: &mut Store, queue: &mut EmittedLightQueue)
-where
-    Store: EmittedLightStore,
-{
 }
 
 #[cfg(test)]

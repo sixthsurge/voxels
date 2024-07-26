@@ -8,6 +8,12 @@ pub mod model;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BlockId(pub u16);
 
+impl BlockId {
+    pub fn as_usize(&self) -> usize {
+        self.0 as usize
+    }
+}
+
 /// Represents a kind of block in the world
 #[derive(Clone, Debug)]
 pub struct Block {

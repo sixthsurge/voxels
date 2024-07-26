@@ -14,11 +14,19 @@ impl BlockModel {
         }
     }
 
-    pub fn is_opaque(&self) -> bool {
+    // Returns a bitmask of the faces of the block that are opaque, i.e. light
+    // cannot pass through that face
+    // If the result is all zeroes, the block is completely transparent
+    pub fn opaque_faces_mask(&self) -> u8 {
         match self {
-            BlockModel::Empty => false,
-            BlockModel::FullBlock(_) => true,
+            BlockModel::Empty => 0b000000,
+            BlockModel::FullBlock(_) => 0b111111,
         }
+    }
+
+    // True if light can pass through the given face of the block
+    pub fn is_transparent_in_direction(&self, face_index: FaceIndex) -> bool {
+        self.opaque_faces_mask() & (1 << face_index.as_usize()) == 0
     }
 }
 

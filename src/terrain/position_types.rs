@@ -1,7 +1,7 @@
 use derive_more::{Add, From, Sub};
 use glam::{IVec3, UVec3, Vec3};
 
-use super::chunk::{CHUNK_SIZE, CHUNK_SIZE_I32, CHUNK_SIZE_LOG2, CHUNK_SIZE_U32};
+use super::chunk::{CHUNK_SIZE, CHUNK_SIZE_3D, CHUNK_SIZE_I32, CHUNK_SIZE_LOG2, CHUNK_SIZE_U32};
 
 /// Position of a block in the world
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Add, From, Sub)]
@@ -82,8 +82,8 @@ impl LocalBlockPosition {
 
     /// If `self.0 + other` is a local block position, return it.
     /// Otherwise, return None
-    pub fn try_add(&self, other: IVec3) -> Option<LocalBlockPosition> {
-        let sum = self.0.as_ivec3() + other;
+    pub fn try_add(&self, rhs: IVec3) -> Option<LocalBlockPosition> {
+        let sum = self.0.as_ivec3() + rhs;
         let not_underflow = sum.cmpge(IVec3::ZERO).all();
         let not_overflow = sum.cmplt(IVec3::splat(CHUNK_SIZE_I32)).all();
         if not_underflow && not_overflow {
@@ -91,6 +91,13 @@ impl LocalBlockPosition {
         } else {
             None
         }
+    }
+
+    /// Adds the IVec3 to the block position, wrapping to stay inside of the chunk
+    pub fn wrapping_add(&self, rhs: IVec3) -> LocalBlockPosition {
+        let sum = self.0.as_ivec3() + rhs;
+
+        LocalBlockPosition((sum & (CHUNK_SIZE_3D.as_ivec3() - 1)).as_uvec3())
     }
 
     pub fn x(&self) -> u32 {

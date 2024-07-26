@@ -6,7 +6,7 @@ use crate::{
     util::transform::Transform,
 };
 
-pub const DEFAULT_SPEED: f32 = 10.0;
+pub const DEFAULT_SPEED: f32 = 20.0;
 pub const DEFAULT_SENSITIVITY: f32 = 0.01;
 
 #[derive(Clone, Debug)]

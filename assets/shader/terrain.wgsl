@@ -4,16 +4,16 @@ struct ColorTargets {
 
 struct Attributes {
     @location(0) position: vec3f,
-    @location(1) uv: vec2f,
-    @location(2) texture_index: u32,
-    @location(3) shading: f32,
+    @location(1) texture_index: u32,
+    @location(2) light: vec4f,
+    @location(3) uv: vec2f,
 };
 
 struct Interpolated {
     @builtin(position) clip_position: vec4f,
     @location(0) uv: vec2f,
     @location(1) texture_index: u32,
-    @location(2) shading: f32,
+    @location(2) light: vec4f,
 }
 
 struct GlobalUniforms {
@@ -43,13 +43,16 @@ fn vs_main(in: Attributes) -> Interpolated {
     out.clip_position = global.camera_projection_matrix * global.camera_view_matrix * vec4f(in.position + render_group.offset, 1.0);
     out.uv = in.uv;
     out.texture_index = in.texture_index;
-    out.shading = in.shading;
+    out.light = in.light;
     return out;
 }
 
 @fragment
 fn fs_main(in: Interpolated) -> ColorTargets {
     var out: ColorTargets;
-    out.color = textureSample(texture_array, texture_array_sampler, in.uv, in.texture_index) * in.shading;
+
+    let light = max(in.light.xyz + vec3f(in.light.w), vec3f(0.0));
+    out.color = textureSample(texture_array, texture_array_sampler, in.uv, in.texture_index) * vec4f(light, 1.0);
+
     return out;
 }

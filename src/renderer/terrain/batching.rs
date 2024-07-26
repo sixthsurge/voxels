@@ -20,7 +20,11 @@ use crate::{
     },
     terrain::{
         block::BLOCK_AIR,
-        chunk::{block_store::ChunkBlockStore, side::ChunkSide, Chunk, CHUNK_SIZE, CHUNK_SIZE_I32},
+        chunk::{
+            block_store::ChunkBlockStore,
+            side::{ChunkSideFaces, ChunkSideLight},
+            Chunk, CHUNK_SIZE, CHUNK_SIZE_I32,
+        },
         load_area::LoadArea,
         position_types::ChunkPosition,
         Terrain,
@@ -446,7 +450,7 @@ impl ChunkBatches {
         let queued_instant = Instant::now();
 
         // skip meshing air chunks
-        if let ChunkBlockStore::Uniform(block_id) = chunk.get_block_store() {
+        if let ChunkBlockStore::Uniform(block_id) = chunk.block_store() {
             if *block_id == BLOCK_AIR {
                 let _ = self.finished_mesh_tx.send((
                     chunk.position(),
@@ -475,9 +479,12 @@ impl ChunkBatches {
 
         // prepare a snapshot of data about the chunk to be passed to the meshing thread
         let chunk_pos = chunk.position();
-        let block_store = chunk.get_block_store().clone();
-        let surrounding_sides =
-            ChunkSide::get_surrounding_sides(chunk_pos, terrain, load_area_index);
+        let block_store = chunk.block_store().clone();
+        let light_store = chunk.light_store().clone();
+        let surrounding_sides_faces =
+            ChunkSideFaces::get_surrounding_sides(chunk_pos, terrain, load_area_index);
+        let surrounding_sides_light =
+            ChunkSideLight::get_surrounding_sides(chunk_pos, terrain, load_area_index);
 
         // assign a higher priority to chunks closer to the camera
         let priority_within_class = (chunk_pos.as_vec3() - camera_pos).length_squared() as i32;
@@ -489,7 +496,7 @@ impl ChunkBatches {
             },
             move || {
                 // move `blocks` and `surrounding sides` to the new thread
-                let (blocks, surrounding_sides) = (block_store, surrounding_sides);
+                let (blocks, surrounding_sides_faces, surrounding_sides_light) = (block_store, surrounding_sides_faces, surrounding_sides_light);
                 let blocks = blocks.as_block_array();
 
                 let translation = chunk_pos
@@ -499,8 +506,10 @@ impl ChunkBatches {
 
                 let vertices = meshing::mesh_greedy(ChunkMeshInput {
                     blocks: &blocks,
-                    translation: translation.as_vec3(), // eventually this will be an IVec3
-                    surrounding_sides: &surrounding_sides,
+                    light: &light_store,
+                    translation: translation.as_vec3(),
+                    surrounding_sides_faces: &surrounding_sides_faces,
+                    surrounding_sides_light: &surrounding_sides_light,
                 });
 
                 if let Err(e) = finished_mesh_tx.send((chunk_pos, ChunkMeshData {

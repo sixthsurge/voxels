@@ -1,11 +1,22 @@
-use glam::{UVec2, UVec3, Vec2, Vec3};
+use glam::{IVec2, IVec3, UVec2, UVec3, Vec2, Vec3, Vec4};
 
 use self::face_dir::*;
 use super::vertex::TerrainVertex;
-use crate::terrain::{
-    block::{model::BlockFace, BlockId, BLOCKS},
-    chunk::{side::ChunkSide, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32},
-    position_types::LocalBlockPosition,
+use crate::{
+    terrain::{
+        block::{model::BlockFace, BlockId, BLOCKS},
+        chunk::{
+            light_store::ChunkLightStore,
+            side::{ChunkSideFaces, ChunkSideLight},
+            CHUNK_SIZE, CHUNK_SIZE_I32, CHUNK_SIZE_LOG2, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32,
+        },
+        lighting::{
+            emitted_light::{self, EmittedLight},
+            LightStore,
+        },
+        position_types::LocalBlockPosition,
+    },
+    util::face::{FaceIndex, FACE_BITANGENTS, FACE_TANGENTS},
 };
 
 /// Data about a chunk needed to generate its mesh
@@ -13,10 +24,14 @@ use crate::terrain::{
 pub struct ChunkMeshInput<'a> {
     /// Array of blocks in the chunk, ordered by z, then y, then x
     pub blocks: &'a [BlockId],
+    /// Chunk light data
+    pub light: &'a ChunkLightStore,
     /// Translation to encode in the mesh
     pub translation: Vec3,
     /// Sides of the surrounding chunks
-    pub surrounding_sides: &'a [Option<ChunkSide>],
+    pub surrounding_sides_faces: &'a [Option<ChunkSideFaces>],
+    /// Light data on the sides of the surrounding chunks
+    pub surrounding_sides_light: &'a [Option<ChunkSideLight>],
 }
 
 /// Creates the vertices for a chunk mesh where faces inside the volume are skipped but no
@@ -100,7 +115,7 @@ fn add_face<Dir>(
                 position: (origin + vertex_offsets[i]).to_array(),
                 uv: uvs[i],
                 texture_index: texture_index as u32,
-                shading: Dir::SHADING * light_data.0[Dir::LIGHT_INDICES[i]],
+                light: (Dir::SHADING * light_data.0[Dir::LIGHT_INDICES[i]]).to_array(),
             }),
     );
 }
@@ -113,7 +128,7 @@ where
     for pos_parallel_x in 0..CHUNK_SIZE_U32 {
         for pos_parallel_y in 0..CHUNK_SIZE_U32 {
             let index_in_layer = (CHUNK_SIZE_U32 * pos_parallel_y + pos_parallel_x) as usize;
-            let mut visible = input.surrounding_sides[Dir::FACE_INDEX.as_usize()]
+            let mut visible = input.surrounding_sides_faces[Dir::FACE_INDEX.as_usize()]
                 .as_ref()
                 .map(|side| side.faces[index_in_layer])
                 .unwrap_or(true);
@@ -138,7 +153,8 @@ where
                     if visible {
                         let light_data = interpolate_light_for_face::<Dir>(
                             LocalBlockPosition::from(pos_in_chunk),
-                            input.blocks,
+                            input.light,
+                            input.surrounding_sides_light,
                         );
 
                         add_face::<Dir>(
@@ -174,7 +190,7 @@ where
     // a face is visible if the block in the previous layer had no face in
     // the opposite direction
     let mut visible: [bool; CHUNK_SIZE_SQUARED] =
-        if let Some(side) = &input.surrounding_sides[Dir::FACE_INDEX.as_usize()] {
+        if let Some(side) = &input.surrounding_sides_faces[Dir::FACE_INDEX.as_usize()] {
             *side.faces
         } else {
             [true; CHUNK_SIZE_SQUARED]
@@ -223,7 +239,8 @@ where
                     } else {
                         interpolate_light_for_face::<Dir>(
                             LocalBlockPosition::from(original_pos),
-                            input.blocks,
+                            input.light,
+                            input.surrounding_sides_light,
                         )
                         // no need to insert it into the cache because this face will never be
                         // considered as a merge candidate
@@ -243,6 +260,8 @@ where
                 for merge_candidate_u in (original_u + 1)..CHUNK_SIZE_U32 {
                     let (can_merge, next_visible) = consider_merge_candidate::<Dir>(
                         input.blocks,
+                        input.light,
+                        input.surrounding_sides_light,
                         &visible,
                         &mut interpolated_light_cache,
                         layer_pos,
@@ -284,6 +303,8 @@ where
                     for merge_candidate_u in original_u..(original_u + face_size.x) {
                         let (can_merge, next_visible) = consider_merge_candidate::<Dir>(
                             input.blocks,
+                            input.light,
+                            input.surrounding_sides_light,
                             &visible,
                             &mut interpolated_light_cache,
                             layer_pos,
@@ -338,6 +359,8 @@ where
 /// same U and V coordinates in the following layer is visible
 fn consider_merge_candidate<Dir>(
     blocks: &[BlockId],
+    light_store: &ChunkLightStore,
+    surrounding_sides_light: &[Option<ChunkSideLight>],
     visible: &[bool; CHUNK_SIZE_SQUARED],
     interpolated_light_cache: &mut [Option<FaceLightData>; CHUNK_SIZE_SQUARED],
     layer_pos: u32,
@@ -376,7 +399,8 @@ where
         } else {
             let interpolated = interpolate_light_for_face::<Dir>(
                 LocalBlockPosition::from(merge_candidate_pos),
-                blocks,
+                light_store,
+                surrounding_sides_light,
             );
             interpolated_light_cache[merge_candidate_index] = Some(interpolated);
             interpolated
@@ -387,90 +411,107 @@ where
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct FaceLightData([f32; 4]);
+struct FaceLightData([Vec4; 4]);
 
-/// future: Interpolate the light values for each vertex of the given face
-/// now: just interpolate whether each block is not air, for AO
-/// once there is floodfill lighting, this will interpolate that instead
+/// Interpolate the light values for each vertex of the given face
 fn interpolate_light_for_face<Dir>(
     block_pos: LocalBlockPosition,
-    blocks: &[BlockId],
+    light_store: &ChunkLightStore,
+    surrounding_sides_light: &[Option<ChunkSideLight>],
 ) -> FaceLightData
 where
     Dir: FaceDir,
 {
-    fn sample_block_at(block_pos: Option<LocalBlockPosition>, blocks: &[BlockId]) -> f32 {
-        if let Some(block_pos) = block_pos {
-            let is_air = blocks[block_pos.get_array_index()] == BlockId(0);
-            if is_air {
-                0.25
-            } else {
-                0.0
-            }
+    let sample_block_at = |block_offset: IVec3| {
+        let emitted_light = if let Some(block_pos) = block_pos.try_add(block_offset) {
+            light_store.read(block_pos)
         } else {
-            0.25
-        }
-    }
+            let offset_pos = block_pos.as_ivec3() + block_offset;
+            let wrapped_pos = offset_pos & (CHUNK_SIZE_I32 - 1);
+            let chunk_offset = offset_pos.div_euclid(IVec3::splat(CHUNK_SIZE_I32));
+
+            if let Some(side_index) = FaceIndex::from_dir(chunk_offset) {
+                let side_index = side_index.as_usize();
+                let u =
+                    IVec3::dot(wrapped_pos, FACE_TANGENTS[side_index].abs()) & (CHUNK_SIZE_I32 - 1);
+                let v = IVec3::dot(wrapped_pos, FACE_BITANGENTS[side_index].abs())
+                    & (CHUNK_SIZE_I32 - 1);
+                let index_in_side = (u as usize) + (v as usize) * CHUNK_SIZE;
+
+                surrounding_sides_light[side_index]
+                    .as_ref()
+                    .map(|side| side.emitted[index_in_side])
+                    .unwrap_or(EmittedLight::ZERO)
+            } else {
+                // No information for chunk corner so use center block
+                light_store.read(block_pos)
+            }
+        };
+
+        let emitted_light_rgb = emitted_light.as_rgb();
+
+        Vec4::new(
+            emitted_light_rgb.0 as f32 / EmittedLight::MAX_VALUE as f32,
+            emitted_light_rgb.1 as f32 / EmittedLight::MAX_VALUE as f32,
+            emitted_light_rgb.2 as f32 / EmittedLight::MAX_VALUE as f32,
+            0.0,
+        )
+    };
 
     // read the 9x9 neighbourhood of blocks in front of the face
     #[rustfmt::skip]
     let samples = [
         [
             sample_block_at(
-                block_pos.try_add(Dir::NORMAL - Dir::TANGENT - Dir::BITANGENT),
-                blocks,
+                Dir::NORMAL - Dir::TANGENT - Dir::BITANGENT,
             ),
             sample_block_at(
-                block_pos.try_add(Dir::NORMAL - Dir::TANGENT),
-                blocks
+                Dir::NORMAL - Dir::TANGENT,
             ),
             sample_block_at(
-                block_pos.try_add(Dir::NORMAL - Dir::TANGENT + Dir::BITANGENT),
-                blocks,
+                Dir::NORMAL - Dir::TANGENT + Dir::BITANGENT,
             ),
         ],
         [
             sample_block_at(
-                block_pos.try_add(Dir::NORMAL - Dir::BITANGENT),
-                blocks,
+                Dir::NORMAL - Dir::BITANGENT,
             ),
             sample_block_at(
-                block_pos.try_add(Dir::NORMAL),
-                blocks
+                Dir::NORMAL,
             ),
             sample_block_at(
-                block_pos.try_add(Dir::NORMAL + Dir::BITANGENT),
-                blocks,
+                Dir::NORMAL + Dir::BITANGENT,
             ),
         ],
         [
             sample_block_at(
-                block_pos.try_add(Dir::NORMAL + Dir::TANGENT - Dir::BITANGENT),
-                blocks,
+                Dir::NORMAL + Dir::TANGENT - Dir::BITANGENT,
             ),
             sample_block_at(
-                block_pos.try_add(Dir::NORMAL + Dir::TANGENT),
-                blocks
+                Dir::NORMAL + Dir::TANGENT,
             ),
             sample_block_at(
-                block_pos.try_add(Dir::NORMAL + Dir::TANGENT + Dir::BITANGENT),
-                blocks,
+                Dir::NORMAL + Dir::TANGENT + Dir::BITANGENT,
             ),
         ],
     ];
 
     FaceLightData([
-        samples[0][0] + samples[0][1] + samples[1][0] + samples[1][1],
-        samples[0][1] + samples[0][2] + samples[1][1] + samples[1][2],
-        samples[1][0] + samples[1][1] + samples[2][0] + samples[2][1],
-        samples[1][1] + samples[1][2] + samples[2][1] + samples[2][2],
+        0.25 * (samples[0][0] + samples[0][1] + samples[1][0] + samples[1][1]),
+        0.25 * (samples[0][1] + samples[0][2] + samples[1][1] + samples[1][2]),
+        0.25 * (samples[1][0] + samples[1][1] + samples[2][0] + samples[2][1]),
+        0.25 * (samples[1][1] + samples[1][2] + samples[2][1] + samples[2][2]),
     ])
 }
 
 /// Decide whether to generate a flipped quad based on the light data, in order to improve the
 /// anisotropy artifact caused by the division of the quad into two triangles
 fn should_flip_quad(light_data: &FaceLightData) -> bool {
-    light_data.0[0] + light_data.0[3] <= light_data.0[1] + light_data.0[2]
+    fn sum_vec4(v: Vec4) -> f32 {
+        v.x + v.y + v.z + v.z
+    }
+
+    sum_vec4(light_data.0[0] + light_data.0[3]) <= sum_vec4(light_data.0[1] + light_data.0[2])
 }
 
 /// Generate indices for the meshes returned by `mesh_culled` and `mesh_greedy`

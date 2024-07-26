@@ -1,17 +1,30 @@
 use glam::{IVec3, Vec3};
 
-use self::{block_store::ChunkBlockStore, connections::ChunkConnections};
+use self::{
+    block_store::ChunkBlockStore, connections::ChunkConnections, light_store::ChunkLightStore,
+    side::ChunkSideLight,
+};
 use super::{
-    block::{BlockId, BLOCK_AIR},
+    block::{BlockId, BLOCKS, BLOCK_AIR},
+    lighting::{
+        emitted_light::{
+            self, get_initial_emitted_light_queue, propagate_emitted_light,
+            propagate_emitted_light_shadow, EmittedLight,
+        },
+        LightPropagationQueue, LightPropagationStep, LightUpdate, LightUpdatesOutsideChunk,
+        ShadowPropagationQueue, ShadowPropagationStep,
+    },
     position_types::{ChunkPosition, LocalBlockPosition},
 };
 use crate::util::{
+    face::FaceIndex,
     size::{Size2, Size3},
     vector_map::VectorMapExt,
 };
 
 pub mod block_store;
 pub mod connections;
+pub mod light_store;
 pub mod side;
 
 pub const CHUNK_SIZE: usize = 32;
@@ -27,6 +40,9 @@ pub const CHUNK_SIZE_RECIP: f32 = 1.0 / (CHUNK_SIZE as f32);
 #[derive(Clone, Debug)]
 pub struct Chunk {
     block_store: ChunkBlockStore,
+    light_store: ChunkLightStore,
+    emitted_light_queue: LightPropagationQueue<EmittedLight>,
+    emitted_light_shadow_queue: ShadowPropagationQueue,
     position: ChunkPosition,
     connections: ChunkConnections,
 }
@@ -38,16 +54,28 @@ impl Chunk {
         let block_store = ChunkBlockStore::new(blocks);
         let connections = ChunkConnections::compute(blocks);
 
+        let light_store = ChunkLightStore::new();
+        let emitted_light_queue = LightPropagationQueue::new();
+        let emitted_light_shadow_queue = ShadowPropagationQueue::new();
+
         Self {
             block_store,
+            light_store,
+            emitted_light_queue,
+            emitted_light_shadow_queue,
             position,
             connections,
         }
     }
 
     /// Returns the underlying block storage
-    pub fn get_block_store(&self) -> &ChunkBlockStore {
+    pub fn block_store(&self) -> &ChunkBlockStore {
         &self.block_store
+    }
+
+    /// Returns the underlying light storage
+    pub fn light_store(&self) -> &ChunkLightStore {
+        &self.light_store
     }
 
     /// Returns the block ID at the given position.
@@ -56,10 +84,31 @@ impl Chunk {
         self.block_store.get_block(pos)
     }
 
-    /// Returns the block ID at the given position.
+    /// Update the block ID at the given position and perform light updates
     /// Panics if the position is out of bounds
     pub fn set_block(&mut self, pos: LocalBlockPosition, new_id: BlockId) {
-        self.block_store.set_block(pos, new_id)
+        let old_id = self.block_store.get_block(pos);
+        if new_id == old_id {
+            return;
+        }
+
+        self.block_store.set_block(pos, new_id);
+
+        // Update emitted light propagation queue
+        let block = &BLOCKS[new_id.as_usize()];
+        if block.emission != IVec3::ZERO {
+            self.emitted_light_queue.push_back(LightPropagationStep {
+                position: pos,
+                light: EmittedLight::from_ivec3(block.emission),
+            });
+        }
+
+        // Update emitted light shadow propagation queue
+        self.emitted_light_shadow_queue
+            .push_back(ShadowPropagationStep {
+                position: pos,
+                depth: EmittedLight::MAX_VALUE,
+            });
     }
 
     /// Returns this chunk's position
@@ -125,6 +174,71 @@ impl Chunk {
         }
 
         None
+    }
+
+    /// True if the chunk has pending light updates
+    pub fn requires_light_updates(&self) -> bool {
+        self.emitted_light_queue.len() > 0 || self.emitted_light_shadow_queue.len() > 0
+    }
+
+    /// Setup the emitted light queue for a new chunk
+    pub fn fill_emitted_light_queue(&mut self, surrounding_sides_light: &[Option<ChunkSideLight>]) {
+        self.emitted_light_queue = get_initial_emitted_light_queue(
+            &self.block_store.as_block_array(),
+            surrounding_sides_light,
+        );
+    }
+
+    /// Add the emitted light value to the lighting queue, if it is greater
+    /// than the existing light value and can pass into the chunk
+    pub fn inform_light_update_from_neighbouring_chunk(
+        &mut self,
+        light_update: LightUpdate,
+        neighbour_index: FaceIndex,
+    ) {
+        match light_update {
+            LightUpdate::EmittedLight(step) => {
+                let existing_light_value = self.light_store.get_emitted_light(step.position);
+                let would_increase_light =
+                    EmittedLight::less(existing_light_value, step.light) != 0;
+
+                let block_id = self.block_store.get_block(step.position);
+                let block = &BLOCKS[block_id.as_usize()];
+                let can_pass_into_chunk = block
+                    .model
+                    .is_transparent_in_direction(neighbour_index.opposite());
+
+                if would_increase_light && can_pass_into_chunk {
+                    self.emitted_light_queue.push_back(step)
+                }
+            }
+            LightUpdate::EmittedLightShadow(step) => {
+                self.emitted_light_shadow_queue.push_back(step);
+            }
+        }
+    }
+
+    /// Propagate light and shadow within the chunk, returning the light updates to be applied
+    /// outside of the chunk
+    pub fn update_lighting(&mut self) -> LightUpdatesOutsideChunk {
+        let mut light_updates_outside_chunk = LightUpdatesOutsideChunk::new();
+
+        propagate_emitted_light_shadow(
+            &mut self.light_store,
+            &mut self.emitted_light_shadow_queue,
+            &mut self.emitted_light_queue,
+            &mut light_updates_outside_chunk,
+            &self.block_store,
+        );
+
+        propagate_emitted_light(
+            &mut self.light_store,
+            &mut self.emitted_light_queue,
+            &mut light_updates_outside_chunk,
+            &self.block_store,
+        );
+
+        light_updates_outside_chunk
     }
 }
 

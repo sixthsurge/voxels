@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use fly_camera::FlyCamera;
 use generational_arena::Index;
+use glam::{IVec2, IVec3};
 use renderer::Renderer;
 use terrain::{
     block::{BLOCK_AIR, BLOCK_DIRT, BLOCK_GRASS, BLOCK_LAMP_ORANGE},
@@ -16,7 +17,7 @@ use terrain::{
     position_types::ChunkPosition,
     Terrain,
 };
-use util::size::Size3;
+use util::{face::FACE_NORMALS, size::Size3};
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalPosition, PhysicalSize},
