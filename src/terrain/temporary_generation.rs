@@ -46,10 +46,6 @@ pub fn generate_chunk(pos: ChunkPosition) -> Chunk {
                         }
                     }
                     solid_above = true;
-
-                    if rand::random::<f32>() > 0.998 {
-                        blocks[index] = BLOCK_LAMP_ORANGE;
-                    }
                 }
             }
         }

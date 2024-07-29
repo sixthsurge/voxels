@@ -27,17 +27,22 @@ pub fn propagate_emitted_light<Store: LightStore<EmittedLight>>(
     blocks: &ChunkBlockStore,
 ) {
     while let Some(step) = light_propagation_queue.pop_front() {
+        // calculate new light value
         let light_old = light_store.read(step.position);
         let light_new = EmittedLight::max(light_old, step.light);
 
+        // stop propagating if the new light value is less than or equal to existing light value
+        // AND this propagation step wasn't queued by the shadow propagation to repair light areas
+        // damaged by shadow
         if EmittedLight::less(light_old, light_new) == 0 && !step.is_repair_step {
             continue;
         }
 
+        // update light value
         light_store.write(step.position, light_new);
 
+        // calculate new light value to propagate to neighbours
         let light_diminished = step.light.decrement_and_saturate();
-
         if light_diminished == EmittedLight::ZERO {
             continue;
         }
@@ -45,6 +50,7 @@ pub fn propagate_emitted_light<Store: LightStore<EmittedLight>>(
         // Propagate light to neighbours
         for (face_index, neighbour_offset) in FACE_NORMALS.iter().enumerate() {
             if let Some(neighbour_pos) = step.position.try_add(*neighbour_offset) {
+                // work out if the light can pass into the neighbouring block
                 let neighbour_block_id = blocks.get_block(neighbour_pos);
                 let neighbour_block = &BLOCKS[neighbour_block_id.as_usize()];
                 let existing_light_value = light_store.read(neighbour_pos);
@@ -53,6 +59,8 @@ pub fn propagate_emitted_light<Store: LightStore<EmittedLight>>(
                     .model
                     .is_transparent_in_direction(FaceIndex(face_index).opposite());
 
+                // work out if propagating light to the neighbouring block would increase the light
+                // value in that block
                 let would_increase_light =
                     EmittedLight::less(existing_light_value, light_diminished) != 0;
 
@@ -64,6 +72,7 @@ pub fn propagate_emitted_light<Store: LightStore<EmittedLight>>(
                     });
                 }
             } else {
+                // send light update to neighbouring chunk
                 let pos_in_neighbour_chunk = step.position.wrapping_add(*neighbour_offset);
 
                 light_updates_outside_chunk.push((

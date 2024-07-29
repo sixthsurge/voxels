@@ -8,13 +8,15 @@ use crate::{
         chunk::{
             light_store::ChunkLightStore,
             side::{ChunkSideFaces, ChunkSideLight},
-            CHUNK_SIZE, CHUNK_SIZE_I32, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32,
+            CHUNK_SIZE, CHUNK_SIZE_I32, CHUNK_SIZE_LOG2, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32,
         },
-        lighting::{emitted_light::EmittedLight, LightStore},
+        lighting::{emitted_light::EmittedLight, skylight::Skylight},
         position_types::LocalBlockPosition,
     },
     util::face::{FaceIndex, FACE_BITANGENTS, FACE_TANGENTS},
 };
+
+const LIGHT_INTERPOLATION: bool = true;
 
 /// Data about a chunk needed to generate its mesh
 #[derive(Clone, Copy)]
@@ -407,6 +409,12 @@ fn interpolate_light_for_face<Dir>(
 where
     Dir: FaceDir,
 {
+    if !LIGHT_INTERPOLATION {
+        return FaceLightData(
+            [sample_light_at(input, block_pos, Dir::NORMAL, Dir::FACE_INDEX, None); 4],
+        );
+    }
+
     // will track whether each orthogonal block is opaque
     // used to prevent light leaking from corner blocks cases like
     // L O
@@ -423,6 +431,7 @@ where
                 input,
                 block_pos,
                 Dir::NORMAL - Dir::TANGENT - Dir::BITANGENT,
+                Dir::FACE_INDEX,
                 None,
             ),
             // -1 0
@@ -430,6 +439,7 @@ where
                 input,
                 block_pos,
                 Dir::NORMAL - Dir::TANGENT,
+                Dir::FACE_INDEX,
                 Some(&mut orthogonal[0]),
             ),
             // -1 1
@@ -437,6 +447,7 @@ where
                 input,
                 block_pos,
                 Dir::NORMAL - Dir::TANGENT + Dir::BITANGENT,
+                Dir::FACE_INDEX,
                 None,
             ),
         ],
@@ -446,6 +457,7 @@ where
                 input,
                 block_pos,
                 Dir::NORMAL - Dir::BITANGENT,
+                Dir::FACE_INDEX,
                 Some(&mut orthogonal[1]),
             ),
             // 0 0
@@ -453,6 +465,7 @@ where
                 input,
                 block_pos,
                 Dir::NORMAL,
+                Dir::FACE_INDEX,
                 None,
             ),
             // 0 1
@@ -460,6 +473,7 @@ where
                 input,
                 block_pos,
                 Dir::NORMAL + Dir::BITANGENT,
+                Dir::FACE_INDEX,
                 Some(&mut orthogonal[2]),
             ),
         ],
@@ -469,6 +483,7 @@ where
                 input,
                 block_pos,
                 Dir::NORMAL + Dir::TANGENT - Dir::BITANGENT,
+                Dir::FACE_INDEX,
                 None,
             ),
             // 1 0
@@ -476,6 +491,7 @@ where
                 input,
                 block_pos,
                 Dir::NORMAL + Dir::TANGENT,
+                Dir::FACE_INDEX,
                 Some(&mut orthogonal[3]),
             ),
             // 1 -1
@@ -483,6 +499,7 @@ where
                 input,
                 block_pos,
                 Dir::NORMAL + Dir::TANGENT + Dir::BITANGENT,
+                Dir::FACE_INDEX,
                 None,
             ),
         ],
@@ -516,9 +533,10 @@ fn sample_light_at(
     input: ChunkMeshInput,
     block_pos: LocalBlockPosition,
     block_offset: IVec3,
+    face_index: FaceIndex,
     opaque: Option<&mut bool>,
 ) -> Vec4 {
-    let emitted_light = if let Some(block_pos) = block_pos.try_add(block_offset) {
+    let (emitted_light, skylight) = if let Some(block_pos) = block_pos.try_add(block_offset) {
         opaque.map(|p| {
             let block_id = input.blocks[block_pos.get_array_index()];
             let block = &BLOCKS[block_id.as_usize()];
@@ -526,44 +544,43 @@ fn sample_light_at(
             *p = block.model.is_opaque();
         });
 
-        input.light.read(block_pos)
+        (
+            input.light.get_emitted_light(block_pos),
+            input.light.get_skylight(block_pos),
+        )
     } else {
         let offset_pos = block_pos.as_ivec3() + block_offset;
-        let wrapped_pos = offset_pos & (CHUNK_SIZE_I32 - 1);
-        let chunk_offset = offset_pos.div_euclid(IVec3::splat(CHUNK_SIZE_I32));
+        let chunk_offset = offset_pos >> CHUNK_SIZE_LOG2 as i32;
 
-        if let Some(side_index) = FaceIndex::from_dir(chunk_offset) {
-            macro_rules! get_aligned_coordinate {
-                ($directions:expr) => {
-                    IVec3::dot(wrapped_pos, $directions[side_index.as_usize()].abs())
-                        & (CHUNK_SIZE_I32 - 1)
-                };
-            }
+        let side_index = FaceIndex::from_dir(chunk_offset)
+            .unwrap_or(face_index)
+            .as_usize();
 
-            let u = get_aligned_coordinate!(FACE_TANGENTS);
-            let v = get_aligned_coordinate!(FACE_BITANGENTS);
-
-            let index_in_side = (u as usize) + (v as usize) * CHUNK_SIZE;
-
-            opaque.map(|p| {
-                *p = input
-                    .surrounding_sides_faces
-                    .get(side_index.as_usize())
-                    .is_some_and(|side_opt| {
-                        side_opt
-                            .as_ref()
-                            .is_some_and(|side| side.faces[index_in_side])
-                    })
-            });
-
-            input.surrounding_sides_light[side_index.as_usize()]
-                .as_ref()
-                .map(|side| side.emitted[index_in_side])
-                .unwrap_or(EmittedLight::ZERO)
-        } else {
-            // No information for chunk corner so use center block
-            input.light.read(block_pos)
+        macro_rules! get_aligned_coordinate {
+            ($directions:expr) => {
+                IVec3::dot(offset_pos, $directions[side_index].abs()).clamp(0, CHUNK_SIZE_I32 - 1)
+            };
         }
+        let u = get_aligned_coordinate!(FACE_TANGENTS);
+        let v = get_aligned_coordinate!(FACE_BITANGENTS);
+
+        let index_in_side = (u as usize) + (v as usize) * CHUNK_SIZE;
+
+        opaque.map(|p| {
+            *p = input
+                .surrounding_sides_faces
+                .get(side_index)
+                .is_some_and(|side_opt| {
+                    side_opt
+                        .as_ref()
+                        .is_some_and(|side| !side.faces[index_in_side])
+                })
+        });
+
+        input.surrounding_sides_light[side_index]
+            .as_ref()
+            .map(|side| (side.emitted[index_in_side], side.sky[index_in_side]))
+            .unwrap_or((EmittedLight::ZERO, Skylight::ZERO))
     };
 
     let emitted_light_rgb = emitted_light.as_rgb();
@@ -572,7 +589,7 @@ fn sample_light_at(
         emitted_light_rgb.0 as f32 / EmittedLight::MAX_VALUE as f32,
         emitted_light_rgb.1 as f32 / EmittedLight::MAX_VALUE as f32,
         emitted_light_rgb.2 as f32 / EmittedLight::MAX_VALUE as f32,
-        0.0,
+        skylight.0 as f32 / Skylight::MAX_VALUE as f32,
     )
 }
 

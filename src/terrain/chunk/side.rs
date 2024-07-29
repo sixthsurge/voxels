@@ -10,7 +10,10 @@ use super::{
     },
     Chunk, CHUNK_SIZE_SQUARED, CHUNK_SIZE_U32,
 };
-use crate::{terrain::lighting::emitted_light::EmittedLight, util::face::FaceIndex};
+use crate::{
+    terrain::lighting::{emitted_light::EmittedLight, skylight::Skylight},
+    util::face::FaceIndex,
+};
 
 /// Represents a side of a chunk, storing whether each tile is solid (false) or empty (true).
 /// The tiles are indexed as follows:
@@ -185,18 +188,21 @@ impl ChunkSideFaces {
 #[derive(Clone, Debug)]
 pub struct ChunkSideLight {
     pub emitted: Arc<[EmittedLight; CHUNK_SIZE_SQUARED]>,
+    pub sky: Arc<[Skylight; CHUNK_SIZE_SQUARED]>,
 }
 
 impl ChunkSideLight {
     pub fn px(chunk: &Chunk) -> Self {
         let mut index = 0;
         let mut emitted = [EmittedLight::ZERO; CHUNK_SIZE_SQUARED];
+        let mut sky = [Skylight::ZERO; CHUNK_SIZE_SQUARED];
 
         for v in 0..CHUNK_SIZE_U32 {
             for u in 0..CHUNK_SIZE_U32 {
                 let pos_in_chunk = LocalBlockPosition::new(CHUNK_SIZE_U32 - 1, v, u);
 
                 emitted[index] = chunk.light_store.get_emitted_light(pos_in_chunk);
+                sky[index] = chunk.light_store.get_skylight(pos_in_chunk);
 
                 index += 1;
             }
@@ -204,18 +210,21 @@ impl ChunkSideLight {
 
         Self {
             emitted: emitted.into(),
+            sky: sky.into(),
         }
     }
 
     pub fn py(chunk: &Chunk) -> Self {
         let mut index = 0;
         let mut emitted = [EmittedLight::ZERO; CHUNK_SIZE_SQUARED];
+        let mut sky = [Skylight::ZERO; CHUNK_SIZE_SQUARED];
 
         for v in 0..CHUNK_SIZE_U32 {
             for u in 0..CHUNK_SIZE_U32 {
                 let pos_in_chunk = LocalBlockPosition::new(v, CHUNK_SIZE_U32 - 1, u);
 
                 emitted[index] = chunk.light_store.get_emitted_light(pos_in_chunk);
+                sky[index] = chunk.light_store.get_skylight(pos_in_chunk);
 
                 index += 1;
             }
@@ -223,18 +232,21 @@ impl ChunkSideLight {
 
         Self {
             emitted: emitted.into(),
+            sky: sky.into(),
         }
     }
 
     pub fn pz(chunk: &Chunk) -> Self {
         let mut index = 0;
         let mut emitted = [EmittedLight::ZERO; CHUNK_SIZE_SQUARED];
+        let mut sky = [Skylight::ZERO; CHUNK_SIZE_SQUARED];
 
         for v in 0..CHUNK_SIZE_U32 {
             for u in 0..CHUNK_SIZE_U32 {
                 let pos_in_chunk = LocalBlockPosition::new(u, v, CHUNK_SIZE_U32 - 1);
 
                 emitted[index] = chunk.light_store.get_emitted_light(pos_in_chunk);
+                sky[index] = chunk.light_store.get_skylight(pos_in_chunk);
 
                 index += 1;
             }
@@ -242,18 +254,21 @@ impl ChunkSideLight {
 
         Self {
             emitted: emitted.into(),
+            sky: sky.into(),
         }
     }
 
     pub fn nx(chunk: &Chunk) -> Self {
         let mut index = 0;
         let mut emitted = [EmittedLight::ZERO; CHUNK_SIZE_SQUARED];
+        let mut sky = [Skylight::ZERO; CHUNK_SIZE_SQUARED];
 
         for v in 0..CHUNK_SIZE_U32 {
             for u in 0..CHUNK_SIZE_U32 {
                 let pos_in_chunk = LocalBlockPosition::new(0, v, u);
 
                 emitted[index] = chunk.light_store.get_emitted_light(pos_in_chunk);
+                sky[index] = chunk.light_store.get_skylight(pos_in_chunk);
 
                 index += 1;
             }
@@ -261,18 +276,21 @@ impl ChunkSideLight {
 
         Self {
             emitted: emitted.into(),
+            sky: sky.into(),
         }
     }
 
     pub fn ny(chunk: &Chunk) -> Self {
         let mut index = 0;
         let mut emitted = [EmittedLight::ZERO; CHUNK_SIZE_SQUARED];
+        let mut sky = [Skylight::ZERO; CHUNK_SIZE_SQUARED];
 
         for v in 0..CHUNK_SIZE_U32 {
             for u in 0..CHUNK_SIZE_U32 {
                 let pos_in_chunk = LocalBlockPosition::new(v, 0, u);
 
                 emitted[index] = chunk.light_store.get_emitted_light(pos_in_chunk);
+                sky[index] = chunk.light_store.get_skylight(pos_in_chunk);
 
                 index += 1;
             }
@@ -280,18 +298,21 @@ impl ChunkSideLight {
 
         Self {
             emitted: emitted.into(),
+            sky: sky.into(),
         }
     }
 
     pub fn nz(chunk: &Chunk) -> Self {
         let mut index = 0;
         let mut emitted = [EmittedLight::ZERO; CHUNK_SIZE_SQUARED];
+        let mut sky = [Skylight::ZERO; CHUNK_SIZE_SQUARED];
 
         for v in 0..CHUNK_SIZE_U32 {
             for u in 0..CHUNK_SIZE_U32 {
                 let pos_in_chunk = LocalBlockPosition::new(u, v, 0);
 
                 emitted[index] = chunk.light_store.get_emitted_light(pos_in_chunk);
+                sky[index] = chunk.light_store.get_skylight(pos_in_chunk);
 
                 index += 1;
             }
@@ -299,6 +320,7 @@ impl ChunkSideLight {
 
         Self {
             emitted: emitted.into(),
+            sky: sky.into(),
         }
     }
 

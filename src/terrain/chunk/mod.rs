@@ -11,6 +11,7 @@ use super::{
             get_initial_emitted_light_queue, propagate_emitted_light,
             propagate_emitted_light_shadow, EmittedLight,
         },
+        skylight::{get_initial_skylight_queue, propagate_skylight, Skylight},
         LightPropagationQueue, LightUpdate, LightUpdatesOutsideChunk, ShadowPropagationQueue,
         ShadowPropagationStep,
     },
@@ -43,6 +44,7 @@ pub struct Chunk {
     light_store: ChunkLightStore,
     emitted_light_queue: LightPropagationQueue<EmittedLight>,
     emitted_light_shadow_queue: ShadowPropagationQueue,
+    skylight_queue: LightPropagationQueue<Skylight>,
     position: ChunkPosition,
     connections: ChunkConnections,
 }
@@ -53,16 +55,17 @@ impl Chunk {
         // here
         let block_store = ChunkBlockStore::new(blocks);
         let connections = ChunkConnections::compute(blocks);
-
         let light_store = ChunkLightStore::new();
         let emitted_light_queue = LightPropagationQueue::new();
         let emitted_light_shadow_queue = ShadowPropagationQueue::new();
+        let skylight_queue = LightPropagationQueue::new();
 
         Self {
             block_store,
             light_store,
             emitted_light_queue,
             emitted_light_shadow_queue,
+            skylight_queue,
             position,
             connections,
         }
@@ -169,7 +172,13 @@ impl Chunk {
 
     /// True if the chunk has pending light updates
     pub fn requires_light_updates(&self) -> bool {
-        self.emitted_light_queue.len() > 0 || self.emitted_light_shadow_queue.len() > 0
+        [
+            self.emitted_light_queue.len(),
+            self.emitted_light_shadow_queue.len(),
+            self.skylight_queue.len(),
+        ]
+        .into_iter()
+        .any(|len| len == 0)
     }
 
     /// Setup the emitted light queue for a new chunk
@@ -178,6 +187,11 @@ impl Chunk {
             &self.block_store.as_block_array(),
             surrounding_sides_light,
         );
+    }
+    /// Setup the skylight queue for a new chunk
+    pub fn fill_skylight_queue(&mut self, surrounding_sides_light: &[Option<ChunkSideLight>]) {
+        self.skylight_queue =
+            get_initial_skylight_queue(&self.block_store.as_block_array(), surrounding_sides_light);
     }
 
     /// Add the emitted light value to the lighting queue, if it is greater
@@ -206,6 +220,20 @@ impl Chunk {
             LightUpdate::EmittedLightShadow(step) => {
                 self.emitted_light_shadow_queue.push_back(step);
             }
+            LightUpdate::Skylight(step) => {
+                let existing_light_value = self.light_store.get_skylight(step.position);
+                let would_increase_light = existing_light_value < step.light;
+
+                let block_id = self.block_store.get_block(step.position);
+                let block = &BLOCKS[block_id.as_usize()];
+                let can_pass_into_chunk = block
+                    .model
+                    .is_transparent_in_direction(neighbour_index.opposite());
+
+                if would_increase_light && can_pass_into_chunk {
+                    self.skylight_queue.push_back(step)
+                }
+            }
         }
     }
 
@@ -225,6 +253,13 @@ impl Chunk {
         propagate_emitted_light(
             &mut self.light_store,
             &mut self.emitted_light_queue,
+            &mut light_updates_outside_chunk,
+            &self.block_store,
+        );
+
+        propagate_skylight(
+            &mut self.light_store,
+            &mut self.skylight_queue,
             &mut light_updates_outside_chunk,
             &self.block_store,
         );

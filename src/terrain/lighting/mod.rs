@@ -1,10 +1,11 @@
 use std::collections::VecDeque;
 
-use self::emitted_light::EmittedLight;
+use self::{emitted_light::EmittedLight, skylight::Skylight};
 use super::position_types::LocalBlockPosition;
 use crate::util::face::FaceIndex;
 
 pub mod emitted_light;
+pub mod skylight;
 
 pub trait LightStore<LightValue> {
     fn read(&self, pos: LocalBlockPosition) -> LightValue;
@@ -30,6 +31,7 @@ pub type ShadowPropagationQueue = VecDeque<ShadowPropagationStep>;
 pub enum LightUpdate {
     EmittedLight(LightPropagationStep<EmittedLight>),
     EmittedLightShadow(ShadowPropagationStep),
+    Skylight(LightPropagationStep<Skylight>),
 }
 
 pub type LightUpdatesOutsideChunk = Vec<(FaceIndex, LightUpdate)>;

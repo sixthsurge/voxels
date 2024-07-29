@@ -51,8 +51,9 @@ fn vs_main(in: Attributes) -> Interpolated {
 fn fs_main(in: Interpolated) -> ColorTargets {
     var out: ColorTargets;
 
-    let light = max(in.light.xyz + vec3f(in.light.w), vec3f(0.0));
+    let light = min(in.light.xyz + vec3f(in.light.w), vec3f(1.0));
     out.color = textureSample(texture_array, texture_array_sampler, in.uv, in.texture_index) * vec4f(light, 1.0);
+    // out.color = vec4f(light, 1.0); white world
 
     return out;
 }
