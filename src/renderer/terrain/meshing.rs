@@ -149,9 +149,8 @@ where
                 if let Some(face) = face {
                     if visible {
                         let light_data = interpolate_light_for_face::<Dir>(
+                            input,
                             LocalBlockPosition::from(pos_in_chunk),
-                            input.light,
-                            input.surrounding_sides_light,
                         );
 
                         add_face::<Dir>(
@@ -230,18 +229,15 @@ where
                 let original_face = original_model.face(Dir::FACE_INDEX);
                 let original_visible = visible[original_index];
 
-                let original_light_data =
-                    if let Some(cached_light_data) = interpolated_light_cache[original_index] {
-                        cached_light_data
-                    } else {
-                        interpolate_light_for_face::<Dir>(
-                            LocalBlockPosition::from(original_pos),
-                            input.light,
-                            input.surrounding_sides_light,
-                        )
-                        // no need to insert it into the cache because this face will never be
-                        // considered as a merge candidate
-                    };
+                let original_light_data = if let Some(cached_light_data) =
+                    interpolated_light_cache[original_index]
+                {
+                    cached_light_data
+                } else {
+                    interpolate_light_for_face::<Dir>(input, LocalBlockPosition::from(original_pos))
+                    // no need to insert it into the cache because this face will never be
+                    // considered as a merge candidate
+                };
 
                 // update `visible` for the next layer
                 visible[original_index] = original_model.face(Dir::OPPOSITE_FACE_INDEX).is_none();
@@ -256,9 +252,7 @@ where
                 let mut face_size = UVec2::ONE;
                 for merge_candidate_u in (original_u + 1)..CHUNK_SIZE_U32 {
                     let (can_merge, next_visible) = consider_merge_candidate::<Dir>(
-                        input.blocks,
-                        input.light,
-                        input.surrounding_sides_light,
+                        input,
                         &visible,
                         &mut interpolated_light_cache,
                         layer_pos,
@@ -299,9 +293,7 @@ where
                     // layer in the U direction
                     for merge_candidate_u in original_u..(original_u + face_size.x) {
                         let (can_merge, next_visible) = consider_merge_candidate::<Dir>(
-                            input.blocks,
-                            input.light,
-                            input.surrounding_sides_light,
+                            input,
                             &visible,
                             &mut interpolated_light_cache,
                             layer_pos,
@@ -355,9 +347,7 @@ where
 /// returns two booleans: whether the face can be merged, and whether the block with the
 /// same U and V coordinates in the following layer is visible
 fn consider_merge_candidate<Dir>(
-    blocks: &[BlockId],
-    light_store: &ChunkLightStore,
-    surrounding_sides_light: &[Option<ChunkSideLight>],
+    input: ChunkMeshInput,
     visible: &[bool; CHUNK_SIZE_SQUARED],
     interpolated_light_cache: &mut [Option<FaceLightData>; CHUNK_SIZE_SQUARED],
     layer_pos: u32,
@@ -374,7 +364,7 @@ where
 
     let merge_candidate_index = (CHUNK_SIZE_U32 * merge_candidate_v + merge_candidate_u) as usize;
 
-    let merge_candidate_id = blocks[uvec3_to_chunk_index(merge_candidate_pos) as usize];
+    let merge_candidate_id = input.blocks[uvec3_to_chunk_index(merge_candidate_pos) as usize];
     let merge_candidate_model = &BLOCKS[merge_candidate_id.0 as usize].model;
     let merge_candidate_face = merge_candidate_model.face(Dir::FACE_INDEX);
     let merge_candidate_visible = visible[merge_candidate_index];
@@ -390,18 +380,17 @@ where
         return (false, next_visible);
     }
 
-    let merge_candidate_light_data =
-        if let Some(cached_light_data) = interpolated_light_cache[merge_candidate_index] {
-            cached_light_data
-        } else {
-            let interpolated = interpolate_light_for_face::<Dir>(
-                LocalBlockPosition::from(merge_candidate_pos),
-                light_store,
-                surrounding_sides_light,
-            );
-            interpolated_light_cache[merge_candidate_index] = Some(interpolated);
-            interpolated
-        };
+    let merge_candidate_light_data = if let Some(cached_light_data) =
+        interpolated_light_cache[merge_candidate_index]
+    {
+        cached_light_data
+    } else {
+        let interpolated =
+            interpolate_light_for_face::<Dir>(input, LocalBlockPosition::from(merge_candidate_pos));
+
+        interpolated_light_cache[merge_candidate_index] = Some(interpolated);
+        interpolated
+    };
     let light_matches = merge_candidate_light_data == original_light_data;
 
     (light_matches, next_visible)
@@ -412,86 +401,106 @@ struct FaceLightData([Vec4; 4]);
 
 /// Interpolate the light values for each vertex of the given face
 fn interpolate_light_for_face<Dir>(
+    input: ChunkMeshInput,
     block_pos: LocalBlockPosition,
-    light_store: &ChunkLightStore,
-    surrounding_sides_light: &[Option<ChunkSideLight>],
 ) -> FaceLightData
 where
     Dir: FaceDir,
 {
-    let sample_block_at = |block_offset: IVec3| {
-        let emitted_light = if let Some(block_pos) = block_pos.try_add(block_offset) {
-            light_store.read(block_pos)
-        } else {
-            let offset_pos = block_pos.as_ivec3() + block_offset;
-            let wrapped_pos = offset_pos & (CHUNK_SIZE_I32 - 1);
-            let chunk_offset = offset_pos.div_euclid(IVec3::splat(CHUNK_SIZE_I32));
-
-            if let Some(side_index) = FaceIndex::from_dir(chunk_offset) {
-                let side_index = side_index.as_usize();
-                let u =
-                    IVec3::dot(wrapped_pos, FACE_TANGENTS[side_index].abs()) & (CHUNK_SIZE_I32 - 1);
-                let v = IVec3::dot(wrapped_pos, FACE_BITANGENTS[side_index].abs())
-                    & (CHUNK_SIZE_I32 - 1);
-                let index_in_side = (u as usize) + (v as usize) * CHUNK_SIZE;
-
-                surrounding_sides_light[side_index]
-                    .as_ref()
-                    .map(|side| side.emitted[index_in_side])
-                    .unwrap_or(EmittedLight::ZERO)
-            } else {
-                // No information for chunk corner so use center block
-                light_store.read(block_pos)
-            }
-        };
-
-        let emitted_light_rgb = emitted_light.as_rgb();
-
-        Vec4::new(
-            emitted_light_rgb.0 as f32 / EmittedLight::MAX_VALUE as f32,
-            emitted_light_rgb.1 as f32 / EmittedLight::MAX_VALUE as f32,
-            emitted_light_rgb.2 as f32 / EmittedLight::MAX_VALUE as f32,
-            0.0,
-        )
-    };
+    // will track whether each orthogonal block is opaque
+    // used to prevent light leaking from corner blocks cases like
+    // L O
+    // O C
+    // (L: light, O: opaque, C: center)
+    let mut orthogonal = [false; 4];
 
     // read the 9x9 neighbourhood of blocks in front of the face
     #[rustfmt::skip]
-    let samples = [
+    let mut samples = [
         [
-            sample_block_at(
+            // -1 -1
+            sample_light_at(
+                input,
+                block_pos,
                 Dir::NORMAL - Dir::TANGENT - Dir::BITANGENT,
+                None,
             ),
-            sample_block_at(
+            // -1 0
+            sample_light_at(
+                input,
+                block_pos,
                 Dir::NORMAL - Dir::TANGENT,
+                Some(&mut orthogonal[0]),
             ),
-            sample_block_at(
+            // -1 1
+            sample_light_at(
+                input,
+                block_pos,
                 Dir::NORMAL - Dir::TANGENT + Dir::BITANGENT,
+                None,
             ),
         ],
         [
-            sample_block_at(
+            // 0 -1
+            sample_light_at(
+                input,
+                block_pos,
                 Dir::NORMAL - Dir::BITANGENT,
+                Some(&mut orthogonal[1]),
             ),
-            sample_block_at(
+            // 0 0
+            sample_light_at(
+                input,
+                block_pos,
                 Dir::NORMAL,
+                None,
             ),
-            sample_block_at(
+            // 0 1
+            sample_light_at(
+                input,
+                block_pos,
                 Dir::NORMAL + Dir::BITANGENT,
+                Some(&mut orthogonal[2]),
             ),
         ],
         [
-            sample_block_at(
+            // 1 -1
+            sample_light_at(
+                input,
+                block_pos,
                 Dir::NORMAL + Dir::TANGENT - Dir::BITANGENT,
+                None,
             ),
-            sample_block_at(
+            // 1 0
+            sample_light_at(
+                input,
+                block_pos,
                 Dir::NORMAL + Dir::TANGENT,
+                Some(&mut orthogonal[3]),
             ),
-            sample_block_at(
+            // 1 -1
+            sample_light_at(
+                input,
+                block_pos,
                 Dir::NORMAL + Dir::TANGENT + Dir::BITANGENT,
+                None,
             ),
         ],
     ];
+
+    // prevent light leaking from corner blocks
+    if orthogonal[0] && orthogonal[1] {
+        samples[0][0] = Vec4::ZERO;
+    }
+    if orthogonal[0] && orthogonal[2] {
+        samples[0][2] = Vec4::ZERO;
+    }
+    if orthogonal[1] && orthogonal[3] {
+        samples[2][0] = Vec4::ZERO;
+    }
+    if orthogonal[2] && orthogonal[3] {
+        samples[2][2] = Vec4::ZERO;
+    }
 
     FaceLightData([
         0.25 * (samples[0][0] + samples[0][1] + samples[1][0] + samples[1][1]),
@@ -499,6 +508,72 @@ where
         0.25 * (samples[1][0] + samples[1][1] + samples[2][0] + samples[2][1]),
         0.25 * (samples[1][1] + samples[1][2] + samples[2][1] + samples[2][2]),
     ])
+}
+
+/// Sample the light value at the block offset by `block_offset` from `block_pos`
+/// If `opaque` is `Some(p)`, `*p` will be set to whether there is an opaque block at the position
+fn sample_light_at(
+    input: ChunkMeshInput,
+    block_pos: LocalBlockPosition,
+    block_offset: IVec3,
+    opaque: Option<&mut bool>,
+) -> Vec4 {
+    let emitted_light = if let Some(block_pos) = block_pos.try_add(block_offset) {
+        opaque.map(|p| {
+            let block_id = input.blocks[block_pos.get_array_index()];
+            let block = &BLOCKS[block_id.as_usize()];
+
+            *p = block.model.is_opaque();
+        });
+
+        input.light.read(block_pos)
+    } else {
+        let offset_pos = block_pos.as_ivec3() + block_offset;
+        let wrapped_pos = offset_pos & (CHUNK_SIZE_I32 - 1);
+        let chunk_offset = offset_pos.div_euclid(IVec3::splat(CHUNK_SIZE_I32));
+
+        if let Some(side_index) = FaceIndex::from_dir(chunk_offset) {
+            macro_rules! get_aligned_coordinate {
+                ($directions:expr) => {
+                    IVec3::dot(wrapped_pos, $directions[side_index.as_usize()].abs())
+                        & (CHUNK_SIZE_I32 - 1)
+                };
+            }
+
+            let u = get_aligned_coordinate!(FACE_TANGENTS);
+            let v = get_aligned_coordinate!(FACE_BITANGENTS);
+
+            let index_in_side = (u as usize) + (v as usize) * CHUNK_SIZE;
+
+            opaque.map(|p| {
+                *p = input
+                    .surrounding_sides_faces
+                    .get(side_index.as_usize())
+                    .is_some_and(|side_opt| {
+                        side_opt
+                            .as_ref()
+                            .is_some_and(|side| side.faces[index_in_side])
+                    })
+            });
+
+            input.surrounding_sides_light[side_index.as_usize()]
+                .as_ref()
+                .map(|side| side.emitted[index_in_side])
+                .unwrap_or(EmittedLight::ZERO)
+        } else {
+            // No information for chunk corner so use center block
+            input.light.read(block_pos)
+        }
+    };
+
+    let emitted_light_rgb = emitted_light.as_rgb();
+
+    Vec4::new(
+        emitted_light_rgb.0 as f32 / EmittedLight::MAX_VALUE as f32,
+        emitted_light_rgb.1 as f32 / EmittedLight::MAX_VALUE as f32,
+        emitted_light_rgb.2 as f32 / EmittedLight::MAX_VALUE as f32,
+        0.0,
+    )
 }
 
 /// Decide whether to generate a flipped quad based on the light data, in order to improve the

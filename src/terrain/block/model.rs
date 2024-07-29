@@ -24,6 +24,10 @@ impl BlockModel {
         }
     }
 
+    pub fn is_opaque(&self) -> bool {
+        self.opaque_faces_mask() != 0
+    }
+
     // True if light can pass through the given face of the block
     pub fn is_transparent_in_direction(&self, face_index: FaceIndex) -> bool {
         self.opaque_faces_mask() & (1 << face_index.as_usize()) == 0
