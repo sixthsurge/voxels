@@ -47,7 +47,7 @@ pub fn propagate_emitted_light<Store: LightStore<EmittedLight>>(
             continue;
         }
 
-        // Propagate light to neighbours
+        // propagate light to neighbours
         for (face_index, neighbour_offset) in FACE_NORMALS.iter().enumerate() {
             if let Some(neighbour_pos) = step.position.try_add(*neighbour_offset) {
                 // work out if the light can pass into the neighbouring block
@@ -228,7 +228,7 @@ pub fn get_initial_emitted_light_queue(
 /// Bits 8 to 12  | Blue component
 /// Bits 12 to 16 | Unused (can store skylight!)
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct EmittedLight(u16);
+pub struct EmittedLight(pub u16);
 
 impl EmittedLight {
     pub const ZERO: EmittedLight = EmittedLight(0);
@@ -237,11 +237,6 @@ impl EmittedLight {
     const COMPONENT_MASK: u16 = 0x0f0f;
     const BORROW_GUARD: u16 = 0x2020;
     const CARRY_MASK: u16 = 0x1010;
-
-    /// Wrap a u16 storing the 3 light values in an `EmittedLight`
-    pub fn from_u16(value: u16) -> Self {
-        Self(value)
-    }
 
     /// Created a packed `EmittedLight` value from the 3 light values
     /// Values must be in 0..16
@@ -256,11 +251,6 @@ impl EmittedLight {
     /// Create a packed `EmittedLight` from the 3 light values
     pub fn from_ivec3(rgb: IVec3) -> Self {
         Self::from_rgb(rgb.x as u16, rgb.y as u16, rgb.z as u16)
-    }
-
-    /// Returns the underlying u16 storing the 3 light values
-    pub fn as_u16(&self) -> u16 {
-        self.0
     }
 
     /// Returns the individual RGB light values represented by this packed `EmittedLight` value

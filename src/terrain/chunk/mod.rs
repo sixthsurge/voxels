@@ -1,4 +1,5 @@
 use glam::{IVec3, Vec3};
+use itertools::Itertools;
 
 use self::{
     block_store::ChunkBlockStore, connections::ChunkConnections, light_store::ChunkLightStore,
@@ -181,17 +182,35 @@ impl Chunk {
         .any(|len| len == 0)
     }
 
-    /// Setup the emitted light queue for a new chunk
-    pub fn fill_emitted_light_queue(&mut self, surrounding_sides_light: &[Option<ChunkSideLight>]) {
+    /// Setup the light propagation queues for a newly loaded chunk
+    pub fn initialize_lighting(&mut self, surrounding_sides_light: &[Option<ChunkSideLight>]) {
         self.emitted_light_queue = get_initial_emitted_light_queue(
             &self.block_store.as_block_array(),
             surrounding_sides_light,
         );
-    }
-    /// Setup the skylight queue for a new chunk
-    pub fn fill_skylight_queue(&mut self, surrounding_sides_light: &[Option<ChunkSideLight>]) {
-        self.skylight_queue =
-            get_initial_skylight_queue(&self.block_store.as_block_array(), surrounding_sides_light);
+
+        // don't bother computing skylight for air chunks at the top of the world
+        let air_chunk = self.block_store.get_single_block() == Some(BLOCK_AIR);
+        let full_skylight_air_chunk = if air_chunk {
+            surrounding_sides_light[FaceIndex::POS_Y.as_usize()]
+                .as_ref()
+                .map(|bottom_of_chunk_above| {
+                    bottom_of_chunk_above.sky.iter().all_equal_value()
+                        == Ok(&Skylight(Skylight::MAX_VALUE))
+                })
+                .unwrap_or(true)
+        } else {
+            false
+        };
+
+        if full_skylight_air_chunk {
+            self.light_store.set_full_skylight();
+        } else {
+            self.skylight_queue = get_initial_skylight_queue(
+                &self.block_store.as_block_array(),
+                surrounding_sides_light,
+            );
+        }
     }
 
     /// Add the emitted light value to the lighting queue, if it is greater

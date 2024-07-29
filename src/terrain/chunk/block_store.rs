@@ -79,6 +79,15 @@ impl ChunkBlockStore {
             ChunkBlockStore::Layered(layers) => set_block_in_layers(layers),
         };
     }
+
+    /// If the chunk comprises of a single block type, returns it
+    /// Otherwise returns `None`
+    pub fn get_single_block(&self) -> Option<BlockId> {
+        match self {
+            ChunkBlockStore::Uniform(block_id) => Some(*block_id),
+            ChunkBlockStore::Layered(_) => None,
+        }
+    }
 }
 
 /// Represents a horizontal layer of blocks in a chunk.

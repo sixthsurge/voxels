@@ -384,8 +384,7 @@ impl Terrain {
                 }
             }
         }
-        self.chunks[chunk_index].fill_emitted_light_queue(&surrounding_sides_light);
-        self.chunks[chunk_index].fill_skylight_queue(&surrounding_sides_light);
+        self.chunks[chunk_index].initialize_lighting(&surrounding_sides_light);
         self.chunks_requiring_light_updates.push_back(chunk_index);
 
         self.events.push(TerrainEvent::ChunkLoaded(chunk_pos));
